@@ -34,7 +34,96 @@ static std::vector<true_false_BB> while_stack;         //& used for break and co
 static bool in_func=false;
 static bool should_load=false;
 static bool require_lvalue_load=false;
-
+llvm::Value* get_from_fp(ast::BinOp op,llvm::Value*lhs,llvm::Value*rhs, ::llvm::IRBuilder<>* const builder_){
+    llvm::Value* ret;
+    switch(op){
+    case::ast::BinOp::PlUS:
+        ret=builder_->CreateFAdd(lhs,rhs);
+        break;
+    case::ast::BinOp::MINUS:
+        ret=builder_->CreateFSub(lhs,rhs);
+        break;
+    case::ast::BinOp::MULTI:
+        ret=builder_->CreateFMul(lhs,rhs);
+        break;
+    case::ast::BinOp::SLASH:
+        ret=builder_->CreateFDiv(lhs,rhs);
+        break;
+    case::ast::BinOp::MOD:
+        assert(0);
+        break;
+    case::ast::BinOp::LT:
+        ret=builder_->CreateFCmpOLT(lhs,rhs);
+        break;
+    case::ast::BinOp::LE:
+        ret=builder_->CreateFCmpOLE(lhs,rhs);
+        break;
+    case::ast::BinOp::GT:
+        ret=builder_->CreateFCmpOGT(lhs,rhs);
+        break;
+    case::ast::BinOp::GE:
+        ret=builder_->CreateFCmpOGE(lhs,rhs);
+        break;
+    case::ast::BinOp::EQ:
+        ret=builder_->CreateFCmpOEQ(lhs,rhs);
+        break;
+    case::ast::BinOp::NOT_EQ:
+        ret=builder_->CreateFCmpONE(lhs,rhs);
+        break;
+    default:
+        exit(151);
+    }
+    return tmp_val;
+}
+llvm::Value* get_from_int(ast::BinOp op,llvm::Value*lhs,llvm::Value*rhs, ::llvm::IRBuilder<>* const builder_){
+    llvm::Value*ret;
+    switch(op){
+    case::ast::BinOp::PlUS:
+        ret=builder_->CreateAdd(lhs,rhs);
+        break;
+    case::ast::BinOp::MINUS:
+        ret=builder_->CreateSub(lhs,rhs);
+        break;
+    case::ast::BinOp::MULTI:
+        ret=builder_->CreateMul(lhs,rhs);
+        break;
+    case::ast::BinOp::SLASH:
+        ret=builder_->CreateSDiv(lhs,rhs);
+        break;
+    case::ast::BinOp::MOD:
+        ret=builder_->CreateSRem(lhs,rhs);
+        break;
+    case::ast::BinOp::LT:
+        ret=builder_->CreateICmpSLT(lhs,rhs);
+        break;
+    case::ast::BinOp::LE:
+        ret=builder_->CreateICmpSLE(lhs,rhs);
+        break;
+    case::ast::BinOp::GT:
+        ret=builder_->CreateICmpSGT(lhs,rhs);
+        break;
+    case::ast::BinOp::GE:
+        ret=builder_->CreateICmpSGE(lhs,rhs);
+        break;
+    case::ast::BinOp::EQ:
+        ret=builder_->CreateICmpEQ(lhs,rhs);
+        break;
+    case::ast::BinOp::NOT_EQ:
+        ret=builder_->CreateICmpNE(lhs,rhs);
+        break;
+    default:
+        exit(151);
+    }
+    return ret;
+}
+llvm::Value* get_bin_from(ast::BinOp op,llvm::Value*lhs,llvm::Value*rhs, ::llvm::IRBuilder<>* const builder_){
+    if(lhs->getType()->isIntegerTy()){
+        return get_from_int(op,lhs,rhs,builder_);
+    }else{
+        return get_from_fp(op,lhs,rhs,builder_);
+    }
+    return 0;
+}
 
 ::llvm::Type*  CodeGen::getType(::type::ValType & front_type){
     ::llvm::Type* type=nullptr;
@@ -126,12 +215,19 @@ void CodeGen::visit(ast::ArrDefStmt &node) {
     assert(0&&"todo!");
 }
 void CodeGen::visit(ast::ConstDeclStmt &node){
-    assert(0&&"todo!");
+    auto tmp_type=getType(node.all_type);
+    for (auto &def:node.var_def_list) {
+        def->accept(*this);
+    }
 }
 void CodeGen::visit(ast::ConstDefStmt &node){
-    builder_->CreateAlloca(getType(node.type));
+    auto def=builder_->CreateAlloca(getType(node.type));
+    val_table->insert({node.name,def});
     if(node.init_expr!=nullptr){
-
+        node.init_expr->accept(*this);
+        builder_->CreateStore(tmp_val,def);
+    }else{
+        assert(0);
     }
 }
 void CodeGen::visit(ast::ConstArrDefStmt &node) {
@@ -179,55 +275,46 @@ void CodeGen::visit(ast::ORExp &node){
     assert(0&&"todo!");
 }
 void CodeGen::visit(ast::RelopExpr &node){
-    assert(0&&"todo!");
-}
-void CodeGen::visit(ast::EqExpr &node){
-    assert(0&&"todo!");
-}
-void CodeGen::visit(ast::BinopExpr &node) {
+    require_lvalue_load=true;
     node.lhs->accept(*this);
     auto lhs=tmp_val;
+    require_lvalue_load=true;
     node.rhs->accept(*this);
     auto rhs=tmp_val;
-    // ::llvm::CmpInst::Predicate Pred;
-    // ::llvm::Instruction::BinaryOps Opc;
-    if(lhs->getType()->isIntegerTy()&&rhs->getType()->isIntegerTy())
-        switch(node.operat){
-        case::ast::BinOp::PlUS:
-            tmp_val=builder_->CreateAdd(lhs,rhs);
-            break;
-        case::ast::BinOp::MINUS:
-            tmp_val=builder_->CreateSub(lhs,rhs);
-            break;
-        case::ast::BinOp::MULTI:
-            tmp_val=builder_->CreateMul(lhs,rhs);
-            break;
-        case::ast::BinOp::SLASH:
-            tmp_val=builder_->CreateSDiv(lhs,rhs);
-            break;
-        case::ast::BinOp::MOD:
-            tmp_val=builder_->CreateSRem(lhs,rhs);
-        case::ast::BinOp::LT:
-            tmp_val=builder_->CreateICmpSLT(lhs,rhs);
-            break;
-        case::ast::BinOp::LE:
-            tmp_val=builder_->CreateICmpSLE(lhs,rhs);
-            break;
-        case::ast::BinOp::GT:
-            tmp_val=builder_->CreateICmpSGT(lhs,rhs);
-            break;
-        case::ast::BinOp::GE:
-            tmp_val=builder_->CreateICmpSGE(lhs,rhs);
-            break;
-        case::ast::BinOp::EQ:
-            tmp_val=builder_->CreateICmpEQ(lhs,rhs);
-            break;
-        case::ast::BinOp::NOT_EQ:
-            tmp_val=builder_->CreateICmpNE(lhs,rhs);
-            break;
-        default:
-            exit(151);
-        }
+    if(lhs->getType()->isFloatTy()&&rhs->getType()->isIntegerTy()){
+        rhs=builder_->CreateSIToFP(rhs,lhs->getType());
+    }else if(lhs->getType()->isIntegerTy()&&rhs->getType()->isFloatTy()){
+        rhs=builder_->CreateSIToFP(lhs,rhs->getType());
+    }
+    tmp_val=get_bin_from(node.operat,lhs,rhs,builder_);
+}
+void CodeGen::visit(ast::EqExpr &node){
+    require_lvalue_load=true;
+    node.lhs->accept(*this);
+    auto lhs=tmp_val;
+    require_lvalue_load=true;
+    node.rhs->accept(*this);
+    auto rhs=tmp_val;
+    if(lhs->getType()->isFloatTy()&&rhs->getType()->isIntegerTy()){
+        rhs=builder_->CreateSIToFP(rhs,lhs->getType());
+    }else if(lhs->getType()->isIntegerTy()&&rhs->getType()->isFloatTy()){
+        rhs=builder_->CreateSIToFP(lhs,rhs->getType());
+    }
+    tmp_val=get_bin_from(node.operat,lhs,rhs,builder_);
+}
+void CodeGen::visit(ast::BinopExpr &node) {
+    require_lvalue_load=true;
+    node.lhs->accept(*this);
+    auto lhs=tmp_val;
+    require_lvalue_load=true;
+    node.rhs->accept(*this);
+    auto rhs=tmp_val;
+    if(lhs->getType()->isFloatTy()&&rhs->getType()->isIntegerTy()){
+        rhs=builder_->CreateSIToFP(rhs,lhs->getType());
+    }else if(lhs->getType()->isIntegerTy()&&rhs->getType()->isFloatTy()){
+        rhs=builder_->CreateSIToFP(lhs,rhs->getType());
+    }
+    tmp_val=get_bin_from(node.operat,lhs,rhs,builder_);
 }
 void CodeGen::visit(ast::LvalExpr &node){
     auto var =this->val_table->findValue(node.name);
