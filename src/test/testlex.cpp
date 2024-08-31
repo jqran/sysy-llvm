@@ -1,5 +1,5 @@
-#include "node.hpp"
-#include "parser.hpp"
+#include "frontend/lex.hpp"
+#include <cstdint>
 #include <iomanip>
 #include <memory>
 #include <fstream>
@@ -29,18 +29,10 @@ int main(int argc , char**argv){
 	// cout << content << endl;
 	ifs.close();
     Lexer lexTest{content};
-    Parser *p=new Parser{content};
-    p->parserComp();
-    for(auto&i:p->comp->global_defs){
-        // cout<<i->name<<endl;
-        // if(i->getType()==ast::StmtType::FUNSTMT){
-        //     auto * fun=(ast::FuncDef*)(i.get());
-        //     for(auto & [ i, b]:fun->argv){
-        //         cout<<i<<"\t"<<b<<endl;
-        //     }
-        // }
-        i->print();
-    }
-    delete (p);
-
+    std::unique_ptr<Token> tok;
+    cout<<"line"<<std::setw(8)<<"column"<<std::setw(8)<<"type"<<std::setw(8)<<"literal"<<endl;
+    do{
+        tok=lexTest.nextToken();
+        cout<<tok->tok_pos.line<<std::setw(8)<<tok->tok_pos.column<<std::setw(8)<<(uint64_t)tok->type<<std::setw(8)<<tok->literal<<'\n';
+    }while(tok->type!=tokenType::LEXEOF);
 }

@@ -5,29 +5,33 @@
 #ifndef __LEXER__
 #define __LEXER__
 using std::string,std::cout,std::cin,std::endl,std::unique_ptr,std::make_unique,std::move;
-enum tokenType{
+enum class tokenType{
     LEXEOF=-1,
     ILLEGAL=1,//illegal
     IDENT, //标识符
     INT,//字面量
+    FLOAT,
     INT_BIN,
     INT_OCTAL,
     INT_HEX,
-    FLOAT,
-    EQUAL,//==
-    NOTEQUAL,//!=
     BANG,//!
     ASSIGN,//=
     PLUS,//+
     MINUS,//-
     ASTERISK,// *
-    ESPERLUTTE,//&
-    D_ESPERLUTTE,//&&
-    OR,//|
-    D_OR,//||
     SLASH,// /
+    MOD,
+    OR,//|
+    ESPERLUTTE,//&
+    
+    D_ESPERLUTTE,//&&
+    D_OR,//||
+    EQUAL,//==
+    NOTEQUAL,//!=
     LT,// <
+    LE,//,=
     GT,//> 
+    GE,//>=
     COMMA,//,
     SEMICOLON,//;
     LPAREM,//(
@@ -54,6 +58,7 @@ struct Pos{
     int line;
     int column;
     Pos(int,int);
+    Pos();
 };
 union PosUinon{
     Pos pos;
@@ -88,7 +93,7 @@ struct Lexer{
     int peekChar();
     unique_ptr<Token>  nextToken();
     string readIdentifier();
-    string readNumber(int &type);
+    string readNumber(tokenType &type);
     
     
 };

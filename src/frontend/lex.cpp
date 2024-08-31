@@ -1,8 +1,12 @@
-#include "lex.hpp"
+#include "frontend/lex.hpp"
 #include <cctype>
+#include <cstdio>
+#include <iostream>
 #include <memory>
 #include <string>
 Pos::Pos(int _x,int _y):line(_x),column(_y){
+}
+Pos::Pos():line(0),column(0){
 }
 Token::Token(string literal,enum::tokenType type):literal(literal), type(type),tok_pos(0,0){
 }
@@ -19,9 +23,10 @@ enum::tokenType Token::lookupIdent(){
     // if(this->literal=="let"){
     //     ret=tokenType::LET;
     // }else 
-    if(literal=="fn"){
-        ret=tokenType::FUNCTION;
-    }else if(literal=="if"){
+    // if(literal=="fn"){
+        // ret=tokenType::FUNCTION;
+    // }else 
+    if(literal=="if"){
         ret=tokenType::IF;
     }else if(literal=="else"){
         ret=tokenType::ELSE;
@@ -66,8 +71,7 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
     std::unique_ptr<Token> tok=nullptr;
     // bool flagRead=true;
     this->skipOther();
-    int l=this->line,c=this->column;
-    // cout<<"ch is "<<(char)ch<<endl;
+    // int l1=this->line,c1=this->column;
     switch (this->ch){
     case '|':
         if(this->peekChar()=='|'){
@@ -91,6 +95,22 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         else
             tok=std::make_unique<Token>("!",tokenType::BANG);
         break;
+    case '<':
+        if(this->peekChar()=='='){
+            this->readChar();
+            tok=std::make_unique<Token>("<=",tokenType::LE);
+        }
+        else
+            tok=std::make_unique<Token>("<",tokenType::LT);
+        break;
+    case '>':
+        if(this->peekChar()=='='){
+            this->readChar();
+            tok=std::make_unique<Token>(">=",tokenType::GE);
+        }
+        else
+            tok=std::make_unique<Token>(">",tokenType::GT);
+        break;
     case '=':
         if(this->peekChar()=='='){
             this->readChar();
@@ -110,6 +130,9 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         break;
     case '/':
         tok=std::make_unique<Token>("/",tokenType::SLASH);
+        break;
+    case '%':
+        tok=std::make_unique<Token>("%",tokenType::MOD);
         break;
     case ',':
         tok=std::make_unique<Token>(",",tokenType::COMMA);
@@ -141,13 +164,13 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         break;
     default:
         if(isalpha(this->ch)||this->ch=='_'){
-            tok=std::make_unique<Token>(readIdentifier(),l,c);
+            tok=std::make_unique<Token>(readIdentifier(),line,column);
             // flagRead=false;
             return std::move(tok);
         }else if(isdigit(this->ch)||ch=='.'){
-            int type;
+            tokenType type;
             string s{readNumber(type)};
-            tok=std::make_unique<Token>(s,(tokenType)type,l,c);
+            tok=std::make_unique<Token>(s,(tokenType)type,line,column);
             // if(tok->literal[1]=='x'||tok->literal[1]=='X'){
             //     tok->type=INT_HEX;
             // }else if(tok->literal[1]=='b'||tok->literal[1]=='B'){
@@ -166,8 +189,8 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
     // if(flagRead){
     //     this->readChar();
     // }
-    tok->tok_pos.line=l;
-    tok->tok_pos.column=c;
+    tok->tok_pos.line=line;
+    tok->tok_pos.column=column;
     this->readChar();
 
     return std::move(tok);
@@ -203,6 +226,10 @@ void Lexer::skipOther(){
         if(peekChar()=='/'){
             while(this->ch!='\n'){ 
                 readChar();
+                if(this->ch==0){
+                    cout<<11<<endl;
+                break;
+            }
             }
         line++;
         column=0;
@@ -212,12 +239,16 @@ void Lexer::skipOther(){
         else if(peekChar()=='*'){
             readChar();
             readChar();
-            while(ch!='*'||peekChar()!='/'){
+            while(!(ch=='*'&&peekChar()=='/')){
                 if(this->ch=='\n'){
                     this->column=0;
                     this->line++;
                 }
                 readChar();
+                if(this->ch==0){
+                    cout<<11<<endl;
+                    break;
+                }
             }
             readChar();
             readChar();
@@ -235,27 +266,28 @@ int isbdigit(int c){
         return 1;
     return 0;
 }
-string Lexer::readNumber(int &type){
+string Lexer::readNumber(tokenType &type){
     int beginpos=this->position;
     int sublen=0;
-    int (*tmpIsDigit)(int)=isdigit;
+    // int (*tmpIsDigit)(int)=isdigit;
     type=tokenType::INT;
     int dot_num=0;
+    bool front0=false;
     if(this->input[position]=='0'){
         if(this->input[readPosition]=='x'||this->input[readPosition]=='X'){
             readChar();
             readChar();
             sublen+=2;
-            tmpIsDigit=isxdigit;
+            // tmpIsDigit=isxdigit;
             type=tokenType::INT_HEX;
         }else if(this->input[readPosition]=='b'||this->input[readPosition]=='B'){
             readChar();
             readChar();
             sublen+=2;
-            tmpIsDigit=isbdigit;
+            // tmpIsDigit=isbdigit;
             type=tokenType::INT_BIN;
         }else if(isodigit(this->input[readPosition])){
-            tmpIsDigit=isodigit;
+            // tmpIsDigit=isodigit;
             readChar();
             ++sublen;
             type=tokenType::INT_OCTAL;
@@ -265,18 +297,136 @@ string Lexer::readNumber(int &type){
         //     type=tokenType::FLOAT;
         // }
     }
-    while(tmpIsDigit(this->input[position])||this->input[position]=='.'){
-        if(ch=='.'&&(type==INT||type==FLOAT)){
-            type=tokenType::FLOAT;
-            if(dot_num){
-                exit(111);
-            }
-            ++dot_num;
-        }else if(ch=='.'&&(type==INT_BIN||type==INT_HEX||type==INT_OCTAL)){
-            exit(123);
+    if(type==tokenType::INT_BIN){
+        while (isbdigit(ch)) {
+            readChar();
+            sublen++;
         }
-        readChar();
-        sublen++;
+    }else if(type==tokenType::INT_HEX){
+        bool hasp=false;
+        while (isxdigit(ch)||ch=='p'||ch=='P'||ch=='.'||ch=='-'||ch=='+') {
+            if(ch=='p'||ch=='P'){
+                type=tokenType::FLOAT;                
+                if(hasp){
+                    exit(199);
+                }
+                hasp=true;
+                readChar();
+                sublen++;
+                if(ch=='-'||ch=='+'||isdigit(ch)){
+                    do{
+                        readChar();
+                        sublen++;
+                    }while(isdigit(ch));
+                    break;
+                }else{
+                    std::cerr<<"err"<<endl;
+                    exit(191);
+                }
+            }else if (ch=='.') {
+                if(dot_num){
+                    break;
+                }
+                ++dot_num;
+                readChar();
+                sublen++;
+            }else if(isxdigit(ch)){
+                readChar();
+                sublen++;
+            }else if (ch=='-'||ch=='+') {
+                break;
+            }
+            else{
+                std::cerr<<"err"<<endl;
+                exit(191);
+            }
+        }
+    }else if(front0){
+        bool has9=false,hase=false;
+        while (isdigit(ch)||ch=='.'||ch=='e'||ch=='E'||ch=='-'||ch=='+') {
+            if(isdigit(ch)){
+                if(ch=='9')
+                    has9=true;
+                readChar();
+                sublen++;
+            }else if(ch=='.'){
+                //只有1个点
+                if(dot_num){
+                    break;
+                }
+                ++dot_num;
+                readChar();
+                sublen++;
+            }else if(ch=='e'||ch=='E'){
+                hase=true;
+                readChar();
+                sublen++;
+                if(ch=='-'||ch=='+'||isdigit(ch)){
+                    do{
+                        readChar();
+                        sublen++;
+                    }while(isdigit(ch));
+                    break;
+                }else{
+                    std::cerr<<"err"<<endl;
+                    exit(191);
+                }
+            }else if (ch=='-'||ch=='+') {
+                break;
+            }
+            else{
+                    std::cerr<<"err"<<endl;
+                    exit(191);
+            }
+
+        }
+        if(has9&&dot_num==0&&!hase){
+            std::cerr<<"is not octal"<<endl;
+            exit(119);
+        }else if(dot_num){
+            type=tokenType::FLOAT;
+        }else if (hase) {
+            type=tokenType::FLOAT;
+        }
+        else if(!hase&&!has9&&dot_num==0){
+            type=tokenType::INT_OCTAL;
+        }
+
+    }else{
+        while (isdigit(ch)||ch=='.'||ch=='e'||ch=='E'||ch=='-'||ch=='+') {
+            if(isdigit(ch)){
+                readChar();
+                sublen++;
+            }else if(ch=='.'){
+                if(dot_num){
+                    break;
+                }
+                ++dot_num;
+                type=tokenType::FLOAT;
+                readChar();
+                sublen++;
+            }else if(ch=='e'||ch=='E'){
+                type=tokenType::FLOAT;
+                readChar();
+                sublen++;
+                if(isdigit(ch)||ch=='-'||ch=='+'){
+                    do {
+                        readChar();
+                        sublen++;
+                    }while (isdigit(ch));
+                    break;
+                }else{
+                    std::cerr<<"err"<<endl;
+                    exit(117);
+                }
+            }else if (ch=='-'||ch=='+') {
+                break;
+            }
+            else{
+                    std::cerr<<"err"<<endl;
+                    exit(191);
+            }
+        }
     }
     if(ch=='f'||ch=='F'){
         if(type!=tokenType::FLOAT)exit(51);
