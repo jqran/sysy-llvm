@@ -1,8 +1,6 @@
 #!/usr/bin/sh
-if [ -d build ];then
-
-else
+if [ ! -d build ];then
     mkdir build
-    fi
+fi
 mkdir build
 cmake  -Bbuild -H.

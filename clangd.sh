@@ -1,9 +1,8 @@
 #!/usr/bin/sh
-if [ -d build ];then
-
-else
+# xmake project -k compile_commands
+if [ ! -d build ];then
     mkdir build
-    fi
+fi
 mkdir build
 cd build
 cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=YES ..
