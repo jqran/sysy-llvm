@@ -14,7 +14,7 @@ include_directories(include)
 link_directories(/usr/lib)
 
 # Source files
-file(GLOB_RECURSE SOURCES "src/main.cpp" "src/frontend/*.cpp" "src/backend/*.cpp")
+file(GLOB_RECURSE SOURCES "src/main.cpp" "src/frontend/*.cpp")
 
 # Create the executable
 add_executable(testllvm ${SOURCES})
