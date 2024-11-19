@@ -7,11 +7,10 @@
 using namespace std;
 int main(int argc , char**argv){
     ifstream ifs;
-        ifs.open("../../../../test/1.sy",ios::in);
+        ifs.open("../../../../testcase/src/main.cj",ios::in);
 
     //std::string some_str(begin, end);
 
- 
     if (!ifs.is_open())
     {
         cout << "read fail." << endl;
@@ -30,9 +29,9 @@ int main(int argc , char**argv){
 	ifs.close();
     Lexer lexTest{content};
     std::unique_ptr<Token> tok;
-    cout<<"line"<<std::setw(8)<<"column"<<std::setw(8)<<"type"<<std::setw(8)<<"literal"<<endl;
+    cout<<"line"<<std::setw(8)<<"column"<<std::setw(8)<<"line"<<std::setw(8)<<"column"<<std::setw(8)<<"type"<<std::setw(8)<<"literal"<<endl;
     do{
         tok=lexTest.nextToken();
-        cout<<tok->tok_pos.line<<std::setw(8)<<tok->tok_pos.column<<std::setw(8)<<(uint64_t)tok->type<<std::setw(8)<<tok->literal<<'\n';
+        cout<<tok->begin.line<<std::setw(8)<<tok->begin.column<<std::setw(8)<<tok->end.line<<std::setw(8)<<tok->end.column<<std::setw(8)<<(uint64_t)tok->type<<std::setw(8)<<tok->literal<<'\n';
     }while(tok->type!=tokenType::LEXEOF);
 }

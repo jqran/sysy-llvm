@@ -1,6 +1,11 @@
 #ifndef TYPE__HPP
 #define TYPE__HPP
+#include <array>
+#include <cstddef>
+#include <map>
+#include <memory>
 #include <string>
+#include <sys/types.h>
 #include <utility>
 #include <vector>
 #include "frontend/lex.hpp"
@@ -38,61 +43,84 @@ namespace type {
 
 #define IS_NUM(i)  ((TYPE_FLOAT|TYPE_INT)&i)
 typedef int type ;
-struct StructType;
+struct DeclType;
 
 union Info{
-    StructType * pointer;
+    DeclType * pointer;
     long size;
     Info(long );
 };
-struct ValType{
-    // int i;
-    // type t;
-    type t;
-    Info size;
-    ValType();
+enum TypeId:size_t{
+    I64,
+    I32,
+    I16,
+    I8,
+    U64,
+    U32,
+    U16,
+    U8,
+    F64,
+    F32,
+    F16,
+    STRUCT,
 };
-struct StructType{
+class Type{
+    // bool mut;
+    size_t size;
+    TypeId type;
+// public:
+//     inline bool isMut(){
+//         return mut;
+//     }
+};
+class BuiltinType:public Type{
+};
+class DeclType:public Type{
     string name;
-    vector<std::pair<ValType, string>> members;
+    vector<std::pair<string,Type*>> members;    
 };
+class TypeManager{
+    std::array<BuiltinType,F16+1> builtin_type;
+    std::map<string, unique_ptr<DeclType>> decl_type;
+    public:
+    BuiltinType* getBuiltin(TypeId id)noexcept{
+        if(id>F16){
+            return nullptr;
+        }
+        return &builtin_type[id];
+    }
+    bool addDeclType(string name,unique_ptr<DeclType> t){
+        if(decl_type.count(name))
+            return false;
+        decl_type.insert({name,std::move(t)});
+        return true;
+    }
+    DeclType*getStruct(string&s)noexcept{
+        auto const iter=decl_type.find(s);
+        if(iter!=decl_type.end()){
+            return iter->second.get();
+        }else{
+            return nullptr;
+        }
+    }
+    // Type* getType(string &s){
 
+    // }
+    TypeManager(){
+
+    }
+    ~TypeManager(){}
+};
 // struct Name  {
 // 	string value;
 // };
 
 // struct Type  {
 // };
-struct Array  {
-    long len  ;
-    ValType elem;
-};
-
-// An Object describes a named language entity such as a package,
-// constant, type, variable, function (incl. methods), or label.
-// All objects implement the Object interface.
-// 
-
-
-
-// A Basic represents a basic type.
-struct Basic  {
-    // BasicKind kind;
-    ValType info ;
-    string name ;
-};
-struct Struct  {
-    string name;
-    std::vector<std::pair<ValType,string>> type_name;
-};
-struct Pointer  {
-    ValType base; // element type
-};
-
-
-
-
-
+// struct Array  {
+//     long len  ;
+//     ValType elem;
+// };
 }
 // enum ValType{
 //     INT_VAL=1,

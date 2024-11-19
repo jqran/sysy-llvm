@@ -10,7 +10,6 @@
 #include "frontend/lex.hpp"
 #include "frontend/type.hpp"
 using std::cout,std::string,std::vector;
-using type::ValType;
 namespace ast {
 class ASTVisitor;
 
@@ -70,6 +69,11 @@ enum class UnOp{
     MINUS='-',
     NOT='!',
 };
+enum class SufOp{
+    ARROW='-',
+    CALL='(',
+    ARRAY='[',
+};
 struct SyntaxNode {
     Pos pos;
     SyntaxNode(Pos);
@@ -114,7 +118,17 @@ struct InfixExpr:public ExprNode{
     virtual void accept(ASTVisitor &visitor)=0;
 
 };
+struct SuffixExpr:public ExprNode{
+    SufOp operat;
+    unique_ptr<ExprNode> rhs;
+    unique_ptr<ExprNode> lhs;
+    SuffixExpr(Pos pos ,unique_ptr<ExprNode> lhs);
+    ~SuffixExpr();
+    virtual int getType()=0;
+    virtual void print(int level=0)=0;
+    virtual void accept(ASTVisitor &visitor)=0;
 
+};
 struct AssignExpr:public InfixExpr{
     AssignExpr(Pos pos ,unique_ptr<ExprNode> lhs);
     virtual int getType();
@@ -152,32 +166,46 @@ struct BinopExpr:public InfixExpr{
     virtual void accept(ASTVisitor &visitor)  final;
 };
 ///////中缀表达式/////
-union valUnion{
-    float f;
-    int   i;
+// union valUnion{
+//     float f;
+//     int   i;
+// };
+enum class LitType{
+    INT,
+    INT_BIN,
+    INT_OCTAL,
+    INT_HEX,
+    FLOAT,
+    STRING,
+    RUNE,
 };
 struct Literal:public ExprNode{
-    valUnion Value;
-    Literal(Pos pos,valUnion);
-    virtual int getType()=0;
-    virtual void print(int level=0)=0;
-    virtual void accept(ASTVisitor &visitor)  =0;
-};
-struct IntConst:public Literal{
-    IntConst(Pos pos,valUnion);
+    unique_ptr<Token> literal;
+    LitType type;   // 字面量类型，包括整数、浮点数、字符串等
+    // Bad   bool    // true means the literal Value has syntax errors
+    // expr
+    // valUnion Value;
+    Literal(Pos pos,unique_ptr<Token>,LitType type);
     virtual int getType();
     virtual void print(int level=0);
-    virtual void accept(ASTVisitor &visitor)  final;
+    virtual void accept(ASTVisitor &visitor) ;
 };
+// struct IntConst:public Literal{
+//     IntConst(Pos pos,valUnion);
+//     virtual int getType();
+//     virtual void print(int level=0);
+//     virtual void accept(ASTVisitor &visitor)  final;
+// };
+// struct FloatConst:public Literal{
+//     // FloatConst(Pos pos,valUnion);
+//     virtual int getType();
+//     virtual void print(int level=0);
+//     virtual void accept(ASTVisitor &visitor)  final;
+// };
+
 struct InitializerExpr:public ExprNode{
     InitializerExpr(Pos pos);
     vector<unique_ptr<ExprNode>> initializers;
-    virtual int getType();
-    virtual void print(int level=0);
-    virtual void accept(ASTVisitor &visitor)  final;
-};
-struct FloatConst:public Literal{
-    FloatConst(Pos pos,valUnion);
     virtual int getType();
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
@@ -248,8 +276,9 @@ struct BlockStmt :public  Statement{
 //抽象类
 struct DefStmt:public Statement{
     string name;
-    ValType type;//变量类型
-    DefStmt (string name ,Pos pos,ValType );
+    // type::Type* type;//变量类型
+    unique_ptr<Token> type;
+    DefStmt (string name ,Pos pos,unique_ptr<Token>);
     // virtual int getType()=0;
     virtual void print(int level=0)=0;
     virtual void accept(ASTVisitor &visitor)=0;
@@ -272,28 +301,35 @@ struct stynaxTree{
 
 
 /*函数声明*/
-struct FuncStmt :public  DefStmt
-{   
-    //在父类里
-    // string name;
-    // ValType val_type;//变量类型    
-    FuncStmt(string name ,Pos pos,ValType );
-    // virtual int getType()=0;
-    virtual void print(int level=0)=0;
-    virtual void accept(ASTVisitor &visitor) =0;
-};
+// struct FuncStmt :public  DefStmt
+// {   
+//     //在父类里
+//     // string name;
+//     // ValType val_type;//变量类型    
+//     // FuncStmt(string name ,Pos pos,type::Type* );
+//     using DefStmt::DefStmt;
+//     // virtual int getType()=0;
+//     virtual void print(int level=0)=0;
+//     virtual void accept(ASTVisitor &visitor) =0;
+// };
 struct FuncFParam:public DefStmt{
     //在父类里
     // string name;
     // ValType val_type;//变量类型
     //nullptr if empty in [ ] 如果[]中为空则为nullptr
     vector<unique_ptr<ExprNode>> index_num;
-    FuncFParam(string,Pos,ValType);
+    using DefStmt::DefStmt;
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor)  final;
+};
+struct DeclStmt:DefStmt{
+    vector<unique_ptr<DefStmt>> members;    
+    using DefStmt::DefStmt;
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
 };
 /*函数定义*/
-struct FuncDef :public  FuncStmt
+struct FuncDef :public  DefStmt
 {   
     //在父类里
     // string name;
@@ -301,7 +337,8 @@ struct FuncDef :public  FuncStmt
     unique_ptr<BlockStmt> body;
     std::vector<unique_ptr<FuncFParam>>  func_f_params;
     // FuncDef(string name ,Pos pos);
-    FuncDef(string name ,Pos pos,ValType );
+    // FuncDef(string name ,Pos pos,type::Type* );
+    using DefStmt::DefStmt;
     ~FuncDef();
     // virtual int getType();
     virtual void print(int level=0);
@@ -309,14 +346,15 @@ struct FuncDef :public  FuncStmt
 
     // bool isReDef(string tok_name);
 };
-struct ValDeclStmt :public  Statement
+
+struct [[deprecated]] ValDeclStmt :public  Statement
 {   
-    ValType all_type;
+    type::Type* all_type;
     vector<unique_ptr<DefStmt>> var_def_list;
     //ValDeclStmt(string name ,Pos pos,ValType);
     //vector<unique_ptr<int>> body;
     ValDeclStmt(Pos pos);
-    ValDeclStmt(Pos pos,ValType type);
+    ValDeclStmt(Pos pos,type::Type* type);
     ~ValDeclStmt();
     // virtual int getType();
     virtual void print(int level=0);
@@ -326,8 +364,9 @@ struct ValDeclStmt :public  Statement
 struct ValDefStmt :public  DefStmt
 {   
     unique_ptr<ExprNode> init_expr;
-    ValDefStmt(string name ,Pos pos,ValType);
-    ValDefStmt(string name ,Pos pos,ValType,unique_ptr<ExprNode>);
+    bool ismut;
+    ValDefStmt(string name ,Pos pos,unique_ptr<Token>type,bool ismut);
+    ValDefStmt(string name ,Pos pos,unique_ptr<Token>type,bool ismut,unique_ptr<ExprNode>);
     ~ValDefStmt();
     //vector<unique_ptr<int>> body;
     // virtual int getType();
@@ -341,31 +380,34 @@ struct ArrDefStmt :DefStmt
     unique_ptr<InitializerExpr> initializers;//初始化列表
     //不知道有什么意义
     vector<int> initializers_index;
-    ArrDefStmt(string name ,Pos pos,ValType);
+    // ArrDefStmt(string name ,Pos pos,type::Type*);
+    using DefStmt::DefStmt;
     // virtual int getType();
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  ;
 };
-struct ConstDeclStmt :public  ValDeclStmt
+struct [[deprecated]] ConstDeclStmt :public  ValDeclStmt
 {   //数据在父类里
     ConstDeclStmt(Pos pos);
-    ConstDeclStmt(Pos pos,ValType type);
+    ConstDeclStmt(Pos pos,type::Type* type);
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
 
 };
-struct ConstDefStmt :public  ValDefStmt
+struct [[deprecated]] ConstDefStmt :public  ValDefStmt
 {   //数据在父类里
-    ConstDefStmt(string name ,Pos pos,ValType);
-    ConstDefStmt(string name ,Pos pos,ValType,unique_ptr<ExprNode>);
+    // ConstDefStmt(string name ,Pos pos,type::Type*);
+    // ConstDefStmt(string name ,Pos pos,type::Type*,unique_ptr<ExprNode>);
+    using ValDefStmt::ValDefStmt;
     //vector<unique_ptr<int>> body;
     // virtual int getType();
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
 };
-struct ConstArrDefStmt :ArrDefStmt
+struct [[deprecated]] ConstArrDefStmt :ArrDefStmt
 {   //数据在父类里
-    ConstArrDefStmt(string name ,Pos pos,ValType);
+    // ConstArrDefStmt(string name ,Pos pos,type::Type*);
+    using ArrDefStmt::ArrDefStmt;
     // virtual int getType();
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
@@ -425,12 +467,12 @@ class ASTVisitor
     virtual void visit(CompunitNode &node) = 0;
     virtual void visit(FuncFParam &node) = 0;
     virtual void visit(FuncDef &node) = 0;
-    virtual void visit(ValDeclStmt &node) = 0;
+    // virtual void visit(ValDeclStmt &node) = 0;
     virtual void visit(ValDefStmt &node) = 0;
     virtual void visit(ArrDefStmt &node) = 0;
-    virtual void visit(ConstDeclStmt &node) = 0;
-    virtual void visit(ConstDefStmt &node) = 0;
-    virtual void visit(ConstArrDefStmt &node) = 0;
+    // virtual void visit(ConstDeclStmt &node) = 0;
+    // virtual void visit(ConstDefStmt &node) = 0;
+    // virtual void visit(ConstArrDefStmt &node) = 0;
     virtual void visit(ExprStmt &node) = 0;
     virtual void visit(AssignStmt &node) = 0;
     virtual void visit(PrefixExpr &node) = 0;
@@ -442,9 +484,11 @@ class ASTVisitor
     virtual void visit(ORExp &node) = 0;
     virtual void visit(BinopExpr &node) = 0;
     virtual void visit(LvalExpr &node) = 0;
-    virtual void visit(IntConst &node) = 0;
+    virtual void visit(Literal &node) = 0;
+
+    // virtual void visit(IntConst &node) = 0;
     virtual void visit(InitializerExpr &node) = 0;
-    virtual void visit(FloatConst &node) = 0;
+    // virtual void visit(FloatConst &node) = 0;
     // virtual void visit(AssignStmt &node) = 0;
     virtual void visit(BlockStmt &node) = 0;
     virtual void visit(IfStmt &node) = 0;

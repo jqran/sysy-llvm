@@ -2,51 +2,55 @@
 #include <cctype>
 #include <cstdio>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <string>
-Pos::Pos(int _x,int _y):line(_x),column(_y){
+Pos::Pos(size_t line,size_t column):line(line),column(column){
 }
 Pos::Pos():line(0),column(0){
 }
-Token::Token(string literal,enum::tokenType type):literal(literal), type(type),tok_pos(0,0){
+Token::Token(string literal,enum::tokenType type):literal(literal), type(type),begin(),end(){
 }
-Token::Token(string literal,enum::tokenType type,int line,int column):literal(literal), type(type),tok_pos(line,column){
+Token::Token(string literal,enum::tokenType type,Pos begin,Pos end):literal(literal), type(type),begin(begin),end(end){
 }
-Token::Token(int ch,enum::tokenType type): literal(1,ch), type(type),tok_pos(0,0){  
+Token::Token(int ch,enum::tokenType type): literal(1,ch), type(type),begin(),end(){  
 }
 // Token::Token(string literal):literal(literal),type(lookupIdent()){
 // }
-Token::Token(string literal,int line,int column):literal(literal),type(lookupIdent()),tok_pos(line ,column){
+Token::Token(string literal,Pos begin,Pos end):literal(literal),type(lookupIdent()),begin(begin),end(end){
 }
 enum::tokenType Token::lookupIdent(){
     tokenType ret;
-    // if(this->literal=="let"){
-    //     ret=tokenType::LET;
-    // }else 
-    // if(literal=="fn"){
-        // ret=tokenType::FUNCTION;
-    // }else 
-    if(literal=="if"){
-        ret=tokenType::IF;
-    }else if(literal=="else"){
-        ret=tokenType::ELSE;
-    }else if(literal=="while"){
-        ret=tokenType::WHILE;
-    }else if(literal=="for"){
-        ret=tokenType::FOR;
-    }else if(literal=="return"){
-        ret=tokenType::RETURN;
-    }else if(literal=="const"){
-        ret=tokenType::CONST;
-    }else if(literal=="int"){
-        ret=tokenType::DEFINT;
-    }else if(literal=="float"){
-        ret=tokenType::DEFFLOAT;
-    }else if(literal=="void"){
-        ret=tokenType::VOID;
+    static const std::map<string const,tokenType>toke_type{
+        {"package",tokenType::KW_PACKAGE},
+        {"public",tokenType::KW_PUBLIC},
+        {"private",tokenType::KW_PRIVATE},
+        {"protected",tokenType::KW_PROTECTED},
+        {"let",tokenType::KW_LET},
+        {"const",tokenType::KW_CONST},
+        {"var",tokenType::KW_VAR},
+        {"func",tokenType::KW_FUNCTION},
+        {"if",tokenType::KW_IF},
+        {"else",tokenType::KW_ELSE},
+        {"while",tokenType::KW_WHILE},
+        {"for",tokenType::KW_FOR},
+        {"return",tokenType::KW_RETURN},
+        {"Int64",tokenType::KW_INT64},
+        {"Int32",tokenType::KW_INT32},
+        {"Int16",tokenType::KW_INT16},
+        {"Int8",tokenType::KW_INT8},
+        {"UInt64",tokenType::KW_UINT64},
+        {"UInt32",tokenType::KW_UINT32},
+        {"UInt16",tokenType::KW_UINT16},
+        {"UInt8",tokenType::KW_UINT8},
+        {"Float64",tokenType::KW_FLOAT64},
+        {"Float32",tokenType::KW_FLOAT32},
+        {"Float16",tokenType::KW_FLOAT16},
+    };
+    if(auto iter=toke_type.find(this->literal);iter!=toke_type.end()){
+        return iter->second;
     }
-    else ret=tokenType::IDENT;
-    return ret;
+    return tokenType::IDENT;
 }
 
 Lexer::Lexer(string input) :input(input),readPosition(1),position(0),ch(input[0]),line(1),column(1) {}
@@ -71,6 +75,7 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
     std::unique_ptr<Token> tok=nullptr;
     // bool flagRead=true;
     this->skipOther();
+    Pos begin{this->line,this->column};
     // int l1=this->line,c1=this->column;
     switch (this->ch){
     case '|':
@@ -123,7 +128,12 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         tok=std::make_unique<Token>("+",tokenType::PLUS);
         break;
     case '-':
-        tok=std::make_unique<Token>("-",tokenType::MINUS);
+        if(this->peekChar()=='>'){
+            this->readChar();
+            tok=std::make_unique<Token>("->",tokenType::EQUAL);
+        }
+        else
+            tok=std::make_unique<Token>("-",tokenType::MINUS);
         break;
     case '*':
         tok=std::make_unique<Token>("*",tokenType::ASTERISK);
@@ -139,6 +149,9 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         break;
     case ';':
         tok=std::make_unique<Token>(";",tokenType::SEMICOLON);
+        break;    
+    case ':':
+        tok=std::make_unique<Token>(":",tokenType::COLON);
         break;
     case '(':
         tok=std::make_unique<Token>("(",tokenType::LPAREM);  
@@ -164,13 +177,14 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         break;
     default:
         if(isalpha(this->ch)||this->ch=='_'){
-            tok=std::make_unique<Token>(readIdentifier(),line,column);
+            string s=readIdentifier();
+            tok=std::make_unique<Token>(s,begin,Pos{this->line,this->column});
             // flagRead=false;
             return std::move(tok);
         }else if(isdigit(this->ch)||ch=='.'){
             tokenType type;
             string s{readNumber(type)};
-            tok=std::make_unique<Token>(s,(tokenType)type,line,column);
+            tok=std::make_unique<Token>(s,(tokenType)type,begin,Pos{this->line,this->column});
             // if(tok->literal[1]=='x'||tok->literal[1]=='X'){
             //     tok->type=INT_HEX;
             // }else if(tok->literal[1]=='b'||tok->literal[1]=='B'){
@@ -179,8 +193,7 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
             //     tok->type=INT_OCTAL;
             // }
             return std::move(tok);
-        }
-        else{
+        }else{
             tok=std::make_unique<Token>(this->ch,tokenType::ILLEGAL);
             exit(1);
         }
@@ -189,8 +202,8 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
     // if(flagRead){
     //     this->readChar();
     // }
-    tok->tok_pos.line=line;
-    tok->tok_pos.column=column;
+    tok->begin=begin;
+    tok->end=Pos{line,column};
     this->readChar();
 
     return std::move(tok);

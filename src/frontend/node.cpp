@@ -1,5 +1,7 @@
 #include "frontend/node.hpp"
 #include "frontend/type.hpp"
+#include <cassert>
+#include <cstdlib>
 #include <memory>
 #include <string>
 using namespace ast;
@@ -12,19 +14,19 @@ ExprStmt::ExprStmt(Pos pos):Statement(pos){}
 ExprStmt::ExprStmt(Pos pos,unique_ptr<ExprNode> expr):Statement(pos),expr(std::move(expr)){}
 EmptyStmt::EmptyStmt(Pos pos):Statement(pos){}
 ValDeclStmt::ValDeclStmt(Pos pos):Statement(pos){}
-ValDeclStmt::ValDeclStmt(Pos pos,ValType type):Statement(pos),all_type(type){}
+ValDeclStmt::ValDeclStmt(Pos pos,type::Type* type):Statement(pos),all_type(type){}
 ConstDeclStmt::ConstDeclStmt(Pos pos):ValDeclStmt(pos){}
-ConstDeclStmt::ConstDeclStmt(Pos pos,ValType type):ValDeclStmt(pos,type){}
-FuncFParam::FuncFParam(string name ,Pos pos,ValType type):DefStmt(name,pos,type){}
-FuncDef::FuncDef(string name ,Pos pos,ValType type):FuncStmt(name,pos,type){}
-FuncStmt::FuncStmt(string name ,Pos pos,ValType type):DefStmt(name,pos,type){}
-DefStmt::DefStmt(string name ,Pos pos,ValType type):Statement(pos),name(name),type(type){}
-ValDefStmt::ValDefStmt(string name ,Pos pos,ValType type):DefStmt(name,pos,type){}
-ValDefStmt::ValDefStmt(string name ,Pos pos,ValType type,unique_ptr<ExprNode> expr):DefStmt(name,pos,type),init_expr(std::move(expr)){}
-ConstDefStmt::ConstDefStmt(string name ,Pos pos,ValType type):ValDefStmt(name,pos,type){}
-ConstDefStmt::ConstDefStmt(string name ,Pos pos,ValType type,unique_ptr<ExprNode> expr):ValDefStmt(name,pos,type,std::move(expr)){}
-ArrDefStmt::ArrDefStmt(string name ,Pos pos,ValType type):DefStmt(name,pos,type){}
-ConstArrDefStmt::ConstArrDefStmt(string name ,Pos pos,ValType type):ArrDefStmt(name,pos,type){}
+ConstDeclStmt::ConstDeclStmt(Pos pos,type::Type* type):ValDeclStmt(pos,type){}
+// FuncFParam::FuncFParam(string name ,Pos pos,type::Type* type):DefStmt(name,pos,type){}
+// FuncDef::FuncDef(string name ,Pos pos,type::Type* type):FuncStmt(name,pos,type){}
+// FuncStmt::FuncStmt(string name ,Pos pos,type::Type* type):DefStmt(name,pos,type){}
+DefStmt::DefStmt(string name ,Pos pos,unique_ptr<Token>type):Statement(pos),name(name),type(std::move(type)){}
+ValDefStmt::ValDefStmt(string name ,Pos pos,unique_ptr<Token>type,bool ismut):DefStmt(name,pos,std::move(type)),ismut(ismut){}
+ValDefStmt::ValDefStmt(string name ,Pos pos,unique_ptr<Token>type,bool ismut,unique_ptr<ExprNode> expr):DefStmt(name,pos,std::move(type)),ismut(ismut),init_expr(std::move(expr)){}
+// ConstDefStmt::ConstDefStmt(string name ,Pos pos,type::Type* type):ValDefStmt(name,pos,type){}
+// ConstDefStmt::ConstDefStmt(string name ,Pos pos,type::Type* type,unique_ptr<ExprNode> expr):ValDefStmt(name,pos,type,std::move(expr)){}
+// ArrDefStmt::ArrDefStmt(string name ,Pos pos,type::Type* type):DefStmt(name,pos,type){}
+// ConstArrDefStmt::ConstArrDefStmt(string name ,Pos pos,type::Type* type):ArrDefStmt(name,pos,type){}
 LvalExpr::LvalExpr(Pos pos,string name ):ExprNode(pos),name(name){}
 CallExpr::CallExpr(Pos pos):ExprNode(pos){}
 //LvalStmt::LvalStmt(string name ,Pos pos,ValType type,unique_ptr<ExprNode> expr):DefStmt(name,pos,type),expr(std::move(expr)){}
@@ -34,10 +36,10 @@ BlockStmt::BlockStmt(Pos pos):Statement(pos){}
 IfStmt::IfStmt(Pos Pos):Statement(pos){}
 AssignStmt::AssignStmt(Pos pos,unique_ptr<ast::ExprNode> lval,unique_ptr<ast::ExprNode> expr):Statement(pos),l_val(std::move(lval)),expr(std::move(expr)){}
 ExprNode::ExprNode(Pos pos):SyntaxNode(pos){}
-IntConst::IntConst(Pos pos,valUnion val):Literal(pos,val){};
+// IntConst::IntConst(Pos pos,valUnion val):Literal(pos,val){};
 InitializerExpr::InitializerExpr(Pos pos):ExprNode(pos){};
-FloatConst::FloatConst(Pos pos,valUnion val):Literal(pos,val){};
-Literal::Literal(Pos pos,valUnion val):ExprNode(pos),Value(val){};
+// FloatConst::FloatConst(Pos pos,valUnion val):Literal(pos,val){};
+Literal::Literal(Pos pos,unique_ptr<Token>literal,LitType type):ExprNode(pos),literal(std::move(literal)),type(type){};
 PrefixExpr::PrefixExpr(Pos pos):ExprNode(pos){};
 InfixExpr::InfixExpr(Pos pos,unique_ptr<ExprNode> lhs):ExprNode(pos),lhs(std::move(lhs)){}
 AssignExpr::AssignExpr(Pos pos,unique_ptr<ExprNode> lhs):InfixExpr(pos,std::move(lhs)){}
@@ -108,15 +110,18 @@ string binopTOStr(BinOp op){
         exit(10);
     }
 }
-int IntConst::getType(){
+// int IntConst::getType(){
+//     return (int)ast::ExprType::INT_LITERAL;
+// }
+int Literal::getType(){
     return (int)ast::ExprType::INT_LITERAL;
 }
 int InitializerExpr::getType(){
     return (int)ast::ExprType::INITIALIZER;
 }
-int FloatConst::getType(){
-    return (int)ast::ExprType::FLOAT_LITERAL;
-}
+// int FloatConst::getType(){
+//     return (int)ast::ExprType::FLOAT_LITERAL;
+// }
 int CallExpr::getType(){
     // exit(114);
     return (int)ast::ExprType::CALL_EXPR;
@@ -162,19 +167,12 @@ int BinopExpr::getType(){
 // int BreakStmt::getType(){
 //     return (int)ast::StmtType::BREAK_STMT;
 // }
-string typeToStr(ValType type){
-    string ret{};
-    if(IS_CONST(type.t)){
-        ret+="const ";
-    }
-    if(IS_INT(type.t)){
-        ret+="int ";
-    }else if(IS_FLOAT(type.t)){
-        ret+="float ";
-    }else{
-        ret+="void ";
-    }
-    return ret;
+string typeToStr(Token* type){
+    /// todo
+    if(type)
+        return type->literal;
+    else
+        return "";
 }
 void LevelPrint(int cur_level,string name,bool is_terminal){
     for(int i = 0 ; i < cur_level; ++i) cout << "|  ";
@@ -187,7 +185,7 @@ void CompunitNode::print(int level){
     }
 }
 void ConstDefStmt::print(int level){
-    string type{ typeToStr(this->type)};
+    string type{ typeToStr(this->type.get())};
     // if(IS_INT(this->val_type.t)){
     //     type+="int";
     // }else{
@@ -201,7 +199,7 @@ void ConstDefStmt::print(int level){
     }
 }
 void ValDefStmt::print(int level){
-    string type{ typeToStr(this->type)};
+    string type{ typeToStr(this->type.get())};
     LevelPrint(level, type, true);
     LevelPrint(level, name, true);
     level++;
@@ -212,7 +210,7 @@ void ValDefStmt::print(int level){
     level--;
 }
 void ArrDefStmt::print(int level){
-    string type{ typeToStr(this->type)};
+    string type{ typeToStr(this->type.get())};
     LevelPrint(level, "ArrDef", false);
     LevelPrint(level, name, true);
     if(initializers==nullptr){
@@ -223,7 +221,7 @@ void ArrDefStmt::print(int level){
     }
 }
 void ConstArrDefStmt::print(int level){
-    string type{ typeToStr(this->type)};
+    string type{ typeToStr(this->type.get())};
     //cout<<"def a vlaue"<<val_type<<" name is "<<name;
     LevelPrint(level, type, false);
     LevelPrint(level, name, true);
@@ -248,7 +246,8 @@ void ConstDeclStmt::print(int level){
 
 // }
 void FuncFParam::print(int level){
-    LevelPrint(level, typeToStr(this->type)+name, false);
+    // exit(0);
+    LevelPrint(level, typeToStr(this->type.get())+name, false);
     for(auto&i:index_num){
         if(i!=nullptr){
             i->print(level);
@@ -260,7 +259,7 @@ void FuncFParam::print(int level){
 }
 void FuncDef::print(int level){
     LevelPrint(level, "FuncDef", false);
-    LevelPrint(level, "return type "+typeToStr(type), false);
+    LevelPrint(level, "return type "+typeToStr((this->type.get())), false);
     LevelPrint(level, this->name, true);
     level++;
     LevelPrint(level, "(", true);
@@ -323,9 +322,12 @@ void AssignStmt::print(int level){
     LevelPrint(level, "=", true);
     expr->print(level);
 }
-void IntConst::print(int level){
-    LevelPrint(level, std::to_string(this->Value.i), true);
+void Literal::print(int level){
+    LevelPrint(level, this->literal->literal, true);
 }
+// void IntConst::print(int level){
+//     LevelPrint(level, std::to_string(this->Value.i), true);
+// }
 void InitializerExpr::print(int level){
     LevelPrint(level, "initializer size is"+std::to_string(initializers.size()), false);
     level++;
@@ -335,9 +337,9 @@ void InitializerExpr::print(int level){
         }
     level--;
 }
-void FloatConst::print(int level){
-LevelPrint(level, std::to_string(this->Value.f), true);
-}
+// void FloatConst::print(int level){
+// LevelPrint(level, std::to_string(this->Value.f), true);
+// }
 void CallExpr::print(int level){
     this->call_name->print(level);
     LevelPrint(level, "(", true);
@@ -448,7 +450,8 @@ void FuncDef::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
 }
 void ValDeclStmt::accept(ASTVisitor &visitor) {
-    visitor.visit(*this);
+    assert(0);
+    // visitor.visit(*this);
 }
 void ValDefStmt::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
@@ -457,7 +460,8 @@ void ArrDefStmt::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
 }
 void ConstDeclStmt::accept(ASTVisitor &visitor) {
-    visitor.visit(*this);
+    assert(0);
+    // visitor.visit(*this);
 }
 void ConstDefStmt::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
@@ -465,15 +469,18 @@ void ConstDefStmt::accept(ASTVisitor &visitor) {
 void ConstArrDefStmt::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
 }
-void IntConst::accept(ASTVisitor &visitor) {
+void Literal::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
 }
+// void IntConst::accept(ASTVisitor &visitor) {
+//     visitor.visit(*this);
+// }
 void InitializerExpr::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
 }
-void FloatConst::accept(ASTVisitor &visitor) {
-    visitor.visit(*this);
-}
+// void FloatConst::accept(ASTVisitor &visitor) {
+//     visitor.visit(*this);
+// }
 void PrefixExpr::accept(ASTVisitor &visitor) {
     visitor.visit(*this);
 }

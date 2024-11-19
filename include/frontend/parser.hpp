@@ -1,10 +1,13 @@
 #include "frontend/node.hpp"
+#include "frontend/type.hpp"
+#include <map>
 #include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 //FuncDef f{"1",Pos{1,1}};
 #ifndef PARSER__AST
 #define PARSER__AST
-using type::ValType;
 enum parserOpPrec{
     LOWEST=51,
     OP_ASSIGN,
@@ -32,33 +35,16 @@ struct Parser{
     Pos cur_pos;
     string file_name;
     
-    const std::map<tokenType, parserOpPrec>precedences= {
-        {tokenType::ASSIGN,parserOpPrec::OP_ASSIGN},
-        {tokenType::D_OR,parserOpPrec::OP_DOR},
-        {tokenType::D_ESPERLUTTE,parserOpPrec::OP_DESP},
-        {tokenType::OR,parserOpPrec::OP_OR},
-        {tokenType::ESPERLUTTE,parserOpPrec::OP_ESP},
-        {tokenType::EQUAL,parserOpPrec::OP_EQUALS},
-        {tokenType::NOTEQUAL,parserOpPrec::OP_EQUALS},
-        {tokenType::LT,parserOpPrec::OP_LESSGREATER},
-        {tokenType::GT,parserOpPrec::OP_LESSGREATER},
-        {tokenType::LE,parserOpPrec::OP_LESSGREATER},
-        {tokenType::GE,parserOpPrec::OP_LESSGREATER},
-        {tokenType::PLUS,parserOpPrec::OP_SUMS},
-        {tokenType::MINUS,parserOpPrec::OP_SUMS},
-        {tokenType::SLASH,parserOpPrec::OP_PRODUCTS},
-        {tokenType::ASTERISK,parserOpPrec::OP_PRODUCTS},
-        {tokenType::MOD,parserOpPrec::OP_PRODUCTS},
-    };
-    
-    
+    static const std::map<tokenType, parserOpPrec>precedences;
+    type::TypeManager type_man;
     unique_ptr<ast::CompunitNode> parserComp();
     // unique_ptr<ast::Statement> parserStmt();
-    unique_ptr<ast::DefStmt> parserValDefStmt(type::ValType);
-    unique_ptr<ast::ArrDefStmt> parserArrDefStmt(type::ValType);
+    void parserStructDecl();
+    unique_ptr<ast::DefStmt> parserValDefStmt();
+    unique_ptr<ast::ArrDefStmt> parserArrDefStmt(bool ismut);
     unique_ptr<ast::InitializerExpr> parserInitlizer();
-    unique_ptr<ast::ValDeclStmt> parserValDeclStmt(type::ValType);
-    unique_ptr<ast::FuncDef> parserFuncStmt(type::ValType type);
+    // unique_ptr<ast::ValDeclStmt> parserValDeclStmt(type::Type*);
+    unique_ptr<ast::FuncDef> parserFuncStmt();
     unique_ptr<ast::IfStmt> parserIfStmt();
     unique_ptr<ast::ExprNode> parserConst();
     unique_ptr<ast::ExprNode> parserExpr(parserOpPrec prec=parserOpPrec::LOWEST);
@@ -66,7 +52,7 @@ struct Parser{
     unique_ptr<ast::ExprNode> parserPrefixExpr();
     unique_ptr<ast::ExprNode> parserInfixExpr(unique_ptr<ast::ExprNode>);
     unique_ptr<ast::ExprNode> parserAssignExpr(unique_ptr<ast::ExprNode>);
-    // unique_ptr<ast::ExprNode> parserSuffixExpr(unique_ptr<ast::ExprNode>);
+    unique_ptr<ast::ExprNode> parserSuffixExpr(unique_ptr<ast::ExprNode>);
     parserOpPrec curPrecedence();
     unique_ptr<ast::WhileStmt> parserWhileStmt();
     unique_ptr<ast::Statement> parserStmts();
@@ -79,9 +65,12 @@ struct Parser{
     unique_ptr<ast::Statement> parserExprStmt();
     void parserArg(std::vector< unique_ptr<ast::FuncFParam>> &);
     unique_ptr<ast::CompunitNode> getComp();
-    type::ValType parserDefType();
-    void nextToken();
+    type::Type* parserDefType();
+
+    //return current token may return nullptr
+    unique_ptr<Token> nextToken();
     void skipIfCurIs(tokenType);
+    void ConsumToken(tokenType);
     Parser(std::string );
     [[deprecated]]
     void reParser(string ) ;
