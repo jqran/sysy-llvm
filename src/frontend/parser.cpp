@@ -1,15 +1,17 @@
 #include "frontend/lex.hpp"
 #include "frontend/parser.hpp"
 #include "frontend/node.hpp"
+#include <algorithm>
+#include <array>
 #include <cassert>
-#include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <iterator>
 #include <memory>
 #include <fstream>
-#include <optional>
+#include <stack>
 #include <utility>
+#include <variant>
 #include <vector>
 #include "frontend/type.hpp"
 #include "cassert"
@@ -17,6 +19,7 @@
 //     curTok=lex->nextToken();
 //     peekTok=lex->nextToken();
 // }
+static std::stack<Parser::BlockType> btys;
 const std::map<tokenType, parserOpPrec>Parser::precedences= {
     {tokenType::ASSIGN,parserOpPrec::OP_ASSIGN},
     {tokenType::D_OR,parserOpPrec::OP_DOR},
@@ -35,8 +38,8 @@ const std::map<tokenType, parserOpPrec>Parser::precedences= {
     {tokenType::ASTERISK,parserOpPrec::OP_PRODUCTS},
     {tokenType::MOD,parserOpPrec::OP_PRODUCTS},
 };
-Parser::Parser(std::string filename):file_name(filename),comp(make_unique<ast::CompunitNode>()),cur_pos(0,0){
-    std::ifstream sysy_file;
+Parser::Parser(std::string filename):file_name(filename),comp(make_unique<ast::CompunitNode>()),last_pos_(0,0){
+  std::ifstream sysy_file;
     sysy_file.open(filename,std::ios::in);
     if (!sysy_file.is_open()){
         std::cerr << "read fail." << endl;
@@ -55,7 +58,7 @@ void Parser::reParser(string filename){
     this->file_name=filename;
     this->comp.reset();
     this->comp=make_unique<ast::CompunitNode>();
-    cur_pos={0,0};
+    last_pos_={0,0};
     std::ifstream sysy_file;
     sysy_file.open(filename,std::ios::in);
     if (!sysy_file.is_open()){
@@ -78,7 +81,8 @@ void Parser::reParser(string filename){
         {"*",ast::BinOp::MULTI},
         {"/",ast::BinOp::SLASH},
         {"%",ast::BinOp::MOD},
-        {"==",ast::BinOp::EQ},
+	{"=",ast::BinOp::ASSIGN},
+	{"==",ast::BinOp::EQ},
         {"!=",ast::BinOp::NOT_EQ},
         {"||",ast::BinOp::DOR},
         {"&&",ast::BinOp::DAND},
@@ -129,57 +133,68 @@ type::Type* Parser::parserDefType(){
     //     }
     // return val_type;
 }
-std::unique_ptr<ast::Statement> Parser::parserStmts(){
-    std::unique_ptr<ast::Statement> ret;
-    if(curTokIs(tokenType::KW_RETURN)){
-        ret=parserRetStmt();
-    }else if(curTokIs(tokenType::KW_LET)||curTokIs(tokenType::KW_VAR)){
-        ret=parserValDefStmt();
-    }else if(curTokIs(tokenType::KW_IF)){
-        ret=parserIfStmt();
-    }else if(curTokIs(tokenType::KW_WHILE)){
-        ret=parserWhileStmt();
-    }else if(curTokIs(tokenType::LBRACE)){
-        ret=parserBlock();
-    }else if(curTokIs(tokenType::KW_CONTINUE)){
-        ret=make_unique<ast::ContinueStmt>(curTok->begin);
-    }else if(curTokIs(tokenType::KW_BREAK)){
-        ret=make_unique<ast::BreakStmt>(curTok->begin);
-    }else if(curTokIs(tokenType::SEMICOLON)){
-        ret=make_unique<ast::EmptyStmt>(curTok->begin);
-        nextToken();
-    }else 
-    // if(curTokIs(tokenType::IDENT)||curTokIs(tokenType::INT)||curTokIs(tokenType::FLOAT)){
-    //     ret=parserExprStmt();
-    // }
-    // else{
-    //     exit(14);
-    // }
-        ret=parserExprStmt();
-    return ret;
-}
+// std::unique_ptr<ast::Statement> Parser::parserStmts(){
+//     std::unique_ptr<ast::Statement> ret;
+//     if(curTokIs(tokenType::KW_RETURN)){
+//         ret=parserRetStmt();
+//     }else if(curTokIs(tokenType::KW_LET)||curTokIs(tokenType::KW_VAR)){
+//         ret=parserValDefStmt();
+//     }else if(curTokIs(tokenType::KW_IF)){
+//         ret=parserIfStmt();
+//     }else if(curTokIs(tokenType::KW_WHILE)){
+//         ret=parserWhileStmt();
+//     }else if(curTokIs(tokenType::LBRACE)){
+//         ret=parserBlock();
+//     }else if(curTokIs(tokenType::KW_CONTINUE)){
+//         ret=make_unique<ast::ContinueStmt>(curTok->begin);
+//     }else if(curTokIs(tokenType::KW_BREAK)){
+//         ret=make_unique<ast::BreakStmt>(curTok->begin);
+//     }else if(curTokIs(tokenType::SEMICOLON)){
+//         ret=make_unique<ast::EmptyStmt>(curTok->begin);
+//         nextToken();
+//     }else if(curTokIs(tokenType::KW_STRUCT)){
+//         ret=parserStructDecl();
+//     }
+//     else
+//     // if(curTokIs(tokenType::IDENT)||curTokIs(tokenType::INT)||curTokIs(tokenType::FLOAT)){
+//     //     ret=parserExprStmt();
+//     // }
+//     // else{
+//     //     exit(14);
+//     // }
+//         ret=parserExprStmt();
+//     return ret;
+// }
 unique_ptr<ast::CompunitNode> Parser::parserComp(){
     unique_ptr<ast::Statement> p_gval=nullptr;
     while(!curTokIs(tokenType::LEXEOF)){
         while(curTokIs(tokenType::SEMICOLON)){
             nextToken();
         }
-        if(curTokIs(tokenType::KW_STRUCT)){
-            parserStructDecl();
-            continue;
-        }else if(curTokIs(tokenType::KW_PACKAGE)){
-            ConsumToken(tokenType::KW_PACKAGE);
-            ConsumToken(tokenType::IDENT);
+        if(curTokIs(tokenType::KW_PACKAGE)){
+            consumToken(tokenType::KW_PACKAGE);
+            consumToken(tokenType::IDENT);
             if(curTokIs(tokenType::SEMICOLON)){
                 nextToken();
             }
+        }else if(curTokIs(tokenType::KW_STRUCT)){
+            comp->global_defs.push_back(parserStructDecl());
+            continue;
         }else if(curTokIs(tokenType::KW_FUNCTION)){
             comp->global_defs.push_back(parserFuncStmt());
-        }else if(curTokIs(tokenType::KW_LET)||(curTokIs(tokenType::KW_VAR))){
+	    continue;
+	}else if(curTokIs(tokenType::KW_LET)||(curTokIs(tokenType::KW_VAR))){
             comp->global_defs.push_back(parserValDefStmt());            
-        }else{
-            parserExpr();
-        }
+	    continue;
+	}else{
+	    if(curTok->literal=="main"){
+	        comp->global_defs.push_back(parserSpecialFuncStmt());
+                continue;
+	    }else{
+	        assert(false);
+	        parserExpr();
+	    }
+	  }
         // type::Type* val=parserDefType();
         unique_ptr<ast::DefStmt> p_gval=nullptr;
         if(peekTokIs(tokenType::LPAREM)){
@@ -232,25 +247,65 @@ unique_ptr<ast::Statement> Parser::parserExprStmt(){
     }
     return ret;
 }
-void Parser::parserStructDecl(){
-    ConsumToken(tokenType::KW_STRUCT);
+// void Parser::parserStructDecl(ast::StructDeclStmt *const struct_decl){
+// }
+unique_ptr<ast::DefStmt> Parser::parserMember(){
+  assert(false);
+}
+unique_ptr<ast::DefStmt> Parser::parserStructDecl(){
+    auto pos=curTok->begin;
+    consumToken(tokenType::KW_STRUCT);
     string name=std::move(curTok->literal);
-    unique_ptr<type::DeclType> type=std::make_unique<type::DeclType>();
     nextToken();
-    ConsumToken(tokenType::LBRACE);
-    while(curTokIs(tokenType::RBRACE)){
-        nextToken();
-    }
-    ConsumToken(tokenType::RBRACE);
+    consumToken(tokenType::LBRACE);
+    unique_ptr<ast::StructDeclStmt> struct_decl=make_unique<ast::StructDeclStmt>(name,pos,nullptr);
+    // auto parserStructInit=[this](){
+    //     auto init=make_unique<ast::FuncDef>(curTok->literal,curTok->begin,nullptr);
+    //     consumToken(tokenType::KW_INIT);
+    //     consumToken(tokenType::LPAREM);
+    //     parserArg(init->func_f_params);
+    //     consumToken(RPAREM);
+    //     // init->body=parserBlock();
+    // 	assert(false);
+    // 	return init;
+    // };
 
+    auto parserStructItem=[this,&struct_decl/*,&parserStructInit*/](){
+        while(!curTokIs(tokenType::RBRACE)){
+            type::perm perm=type::perm::DEFAULT;
+            if(curTokIs(tokenType::KW_PUBLIC)){
+                nextToken();
+                perm=type::perm::PUBLIC;
+            }else if(curTokIs(tokenType::KW_PROTECTED)){
+                nextToken();
+                perm=type::perm::PROTECTED;
+            }else if(curTokIs(tokenType::KW_PRIVATE)){
+                nextToken();
+                perm=type::perm::PRIVATE;
+            }
+            if(curTokIs(tokenType::KW_INIT)){
+                struct_decl->init=parserSpecialFuncStmt();
+            }else if(curTokIs(tokenType::KW_LET)||curTokIs(tokenType::KW_VAR)){
+                struct_decl->members.push_back({parserValDefStmt(),perm});
+            }else if(curTokIs(tokenType::KW_FUNCTION)){
+                struct_decl->members.push_back({parserFuncStmt(),perm});
+            }else{assert(0);}
+        }
+    };
+    parserStructItem();
+    consumToken(tokenType::RBRACE);
+    return struct_decl;
 }
 unique_ptr<ast::DefStmt> Parser::parserValDefStmt(){
+    auto pos=curTok->begin;
     bool ismut=false;
     if(curTokIs(tokenType::KW_VAR)){
         ismut=true;
     }else if(curTokIs(tokenType::KW_LET)==false){
+        // std::cerr<<curTok->literal;
         assert(0);
     }
+    nextToken();
     unique_ptr<ast::DefStmt> ret=nullptr;
     if(!curTokIs(tokenType::IDENT)){
         exit(81);
@@ -258,22 +313,27 @@ unique_ptr<ast::DefStmt> Parser::parserValDefStmt(){
     if(peekTokIs(tokenType::LSQ_BRACE)){
         ret=parserArrDefStmt(ismut);
     }else{
-        unique_ptr<ast::ValDefStmt> tmp;
         string name=std::move(curTok->literal);
         nextToken();
+        unique_ptr<ast::ValDefStmt> tmp=make_unique<ast::ValDefStmt>(name,pos,nullptr,ismut);
         // type::Type*type=nullptr;
-        unique_ptr<Token>type=nullptr;        
         if(curTokIs(tokenType::COLON)){
             nextToken();
-            tmp->type=nextToken();
+            tmp->type=std::move(nextToken());
         }
         if(curTokIs(tokenType::ASSIGN)){
             nextToken();
             tmp->init_expr=parserExpr();
         }
+        if(curTokIs(tokenType::SEMICOLON)){
+            nextToken();
+        }else if(last_pos_.line==curTok->begin.line){
+	  std::cerr<<last_pos_.line<<std::endl;
+	  std::cerr<<curTok->begin.line<<std::endl;
+	  assert(false);
+	}
         ret=std::move(tmp);
     }
-        
     return ret;
 }
 unique_ptr<ast::ArrDefStmt> Parser::parserArrDefStmt(bool ismut){
@@ -296,7 +356,7 @@ unique_ptr<ast::ArrDefStmt> Parser::parserArrDefStmt(bool ismut){
     // return ret;
 }
 unique_ptr<ast::InitializerExpr> Parser::parserInitlizer(){
-    unique_ptr<ast::InitializerExpr> ret=make_unique<ast::InitializerExpr>(cur_pos);
+    unique_ptr<ast::InitializerExpr> ret=make_unique<ast::InitializerExpr>(last_pos_);
     skipIfCurIs(tokenType::LBRACE);
     if(curTokIs(tokenType::RBRACE)){
         skipIfCurIs(tokenType::RBRACE);
@@ -324,35 +384,71 @@ unique_ptr<ast::FuncDef> Parser::parserFuncStmt(){
     Pos begin=curTok->begin;
     nextToken();
     string name=std::move(curTok->literal);
-    ConsumToken(tokenType::IDENT);
+    consumToken(tokenType::IDENT);
     unique_ptr<Token>type=nullptr;
     if(curTokIs(tokenType::COLON)){
         nextToken();
         type=nextToken();
     }
     unique_ptr<ast::FuncDef> fun=make_unique<ast::FuncDef>(name,begin,std::move(type));
-    ConsumToken(tokenType::LPAREM);
+    consumToken(tokenType::LPAREM);
     
     //skip(
     parserArg(fun->func_f_params);
     
-    ConsumToken(tokenType::RPAREM);
+    consumToken(tokenType::RPAREM);
     // if(curTokIs(tokenType::SEMICOLON)){
     //     nextToken();
     // }else {
-       fun->body= parserBlock();
+    btys.emplace(FUNC);
+    assert(curTokIs(tokenType::LBRACE));
+    fun->body= unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>(parserBlockExpr().release()));
     // }
-
+    btys.pop();
 
     return fun;
 }
+unique_ptr<ast::FuncDef> Parser::parserSpecialFuncStmt(){
+    Pos begin=curTok->begin;
+    string name=std::move(curTok->literal);
+    // consumToken({KW_INIT});
+    static std::array<string const,2> const si{"main","init"};
+    auto iter=std::find(si.begin(), si.end(), name);
+    if(iter==si.end()){
+      assert(false);
+    }
+    nextToken();
+    unique_ptr<Token>type=nullptr;
+    if(curTokIs(tokenType::COLON)){
+        nextToken();
+        type=nextToken();
+    }
+    unique_ptr<ast::FuncDef> fun=make_unique<ast::FuncDef>(name,begin,std::move(type));
+    consumToken(tokenType::LPAREM);
+    
+    //skip(
+    parserArg(fun->func_f_params);
+    
+    consumToken(tokenType::RPAREM);
+    // if(curTokIs(tokenType::SEMICOLON)){
+    //     nextToken();
+    // }else {
+    btys.emplace(FUNC);
+    assert(curTokIs(tokenType::LBRACE));
+    fun->body= unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>(parserBlockExpr().release()));
+    // }
+    btys.pop();
+
+    return fun;
+}
+
 unique_ptr<ast::RetStmt>  Parser::parserRetStmt( ){
     std::unique_ptr<ast::RetStmt> ret;
     ret=make_unique<ast::RetStmt>(curTok->begin);
-    ConsumToken(tokenType::KW_RETURN);
+    consumToken(tokenType::KW_RETURN);
     if(!curTokIs(tokenType::SEMICOLON))
         ret->expr=parserExpr();
-    ConsumToken(tokenType::SEMICOLON);
+    consumToken(tokenType::SEMICOLON);
     return ret;
 }
 void Parser::parserArg(std::vector<unique_ptr<ast::FuncFParam>> &argv){
@@ -363,8 +459,8 @@ void Parser::parserArg(std::vector<unique_ptr<ast::FuncFParam>> &argv){
         //     exit(2);
         // }
         string id=curTok->literal;
-        ConsumToken(tokenType::IDENT);
-        ConsumToken(tokenType::COLON);
+        consumToken(tokenType::IDENT);
+        consumToken(tokenType::COLON);
         auto type=nextToken();
         auto param=make_unique<ast::FuncFParam>(std::move(id),type->begin,std::move(type));
         while(curTokIs(tokenType::LSQ_BRACE)){
@@ -381,35 +477,119 @@ void Parser::parserArg(std::vector<unique_ptr<ast::FuncFParam>> &argv){
         }
         if(curTokIs(tokenType::RPAREM)){
             break;
-        }else ConsumToken(tokenType::RPAREM);
-            
+        }   
     }
 
 }
-unique_ptr<ast::IfStmt> Parser::parserIfStmt(){
-    unique_ptr<ast::IfStmt> ret=make_unique<ast::IfStmt>(curTok->begin);
-    skipIfCurIs(tokenType::KW_IF);
-    skipIfCurIs(tokenType::LPAREM);
-    ret->pred=parserExpr();
-    skipIfCurIs(tokenType::RPAREM);
+// unique_ptr<ast::IfStmt> Parser::parserIfStmt(){
+//     unique_ptr<ast::IfStmt> ret=make_unique<ast::IfStmt>(curTok->begin);
+//     skipIfCurIs(tokenType::KW_IF);
+//     skipIfCurIs(tokenType::LPAREM);
+//     ret->pred=parserExpr();
+//     skipIfCurIs(tokenType::RPAREM);
+//     //parserBlockItems(if_state->if_body);
+//     ret->then_stmt=parserStmts();
+//     if(curTokIs(tokenType::KW_ELSE)){
+//         nextToken();
+//         //parserBlockItems(if_state->else_body);
+//         ret->else_stmt=parserStmts();
+//     }
+//     return ret;
+// }
+std::variant<unique_ptr<ast::ExprNode>,unique_ptr<ast::Statement>> Parser::parserStmtExpr(){
+  unique_ptr<ast::ExprNode> expr;
+  switch (curTok->type) {
+  case::KW_VAR:
+  case::KW_LET:
+  case::KW_CONST:
+    return std::variant<unique_ptr<ast::ExprNode>,unique_ptr<ast::Statement>>{parserValDefStmt()};
+  case::KW_IF:
+    return std::variant<unique_ptr<ast::ExprNode>,unique_ptr<ast::Statement>>{parserIfExpr()};
+  case::KW_RETURN:
+    return std::variant<unique_ptr<ast::ExprNode>,unique_ptr<ast::Statement>>{parserRetStmt()};
+  default:
+    expr=parserExpr();
+  }
+  if(curTok->begin.line>last_pos_.line){
+    return expr;
+  }
+  if(curTokIs(tokenType::SEMICOLON )){
+    nextToken();
+    auto pos=expr->pos;
+    auto ret=make_unique<ast::ExprStmt>(pos,std::move(expr));
+    return ret;
+  }else{
+    assert(false);
+  }
+}
+unique_ptr<ast::ExprNode> Parser::parserBlockExpr(){
+  assert(btys.empty()==false);
+  BlockType bty=btys.top();
+  auto ret=make_unique<ast::BlockExpr>(curTok->begin);
+  consumToken(tokenType::LBRACE);
+  while(!curTokIs(tokenType::RBRACE)){
+    auto se=parserStmtExpr();
+    auto expr_p=std::get_if<unique_ptr<ast::ExprNode>>(&se);
+    if(expr_p!=nullptr){
+      auto& expr=*expr_p;
+      if(curTokIs(tokenType::RBRACE)){
+	ret->expr_=std::move(expr);
+      }else{
+	auto pos=expr->pos;
+	ret->stmts_.push_back(make_unique<ast::ExprStmt>(pos,std::move(expr)));
+      }
+    }else{
+      auto stmt=std::get_if<unique_ptr<ast::Statement>>(&se);
+      assert(stmt);
+      ret->stmts_.push_back(std::move(*stmt));
+    }
+  }
+  nextToken();
+  return ret;
+}
+unique_ptr<ast::ExprNode> Parser::parserIfExpr(){
+    unique_ptr<ast::IfExpr> ret=make_unique<ast::IfExpr>(curTok->begin);
+    consumToken(tokenType::KW_IF);
+    consumToken(tokenType::LPAREM);
+    ret->cond_=parserExpr();
+    consumToken(tokenType::RPAREM);
     //parserBlockItems(if_state->if_body);
-    ret->then_stmt=parserStmts();
+    btys.emplace(IF);
+    auto block=parserBlockExpr().release();
+    btys.pop();
+    ret->then_=unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>(block));
     if(curTokIs(tokenType::KW_ELSE)){
         nextToken();
         //parserBlockItems(if_state->else_body);
-        ret->else_stmt=parserStmts();
+        btys.emplace(ELSE);
+	auto block=parserBlockExpr().release();
+	ret->else_=unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>( block));
+	btys.pop();
     }
     return ret;
 }
-unique_ptr<ast::WhileStmt> Parser::parserWhileStmt(){
-    unique_ptr<ast::WhileStmt> ret=make_unique<ast::WhileStmt>(curTok->begin);
-    skipIfCurIs(tokenType::KW_WHILE);
-    skipIfCurIs(tokenType::LPAREM);
-    ret->pred=parserExpr();
-    skipIfCurIs(tokenType::RPAREM);
-    ret->loop_stmt=std::move(parserStmts());
+unique_ptr<ast::ExprNode> Parser::parserWhileExpr(){
+    unique_ptr<ast::WhileExpr> ret=make_unique<ast::WhileExpr>(curTok->begin);
+    consumToken(tokenType::KW_IF);
+    consumToken(tokenType::LPAREM);
+    ret->cond_=parserExpr();
+    consumToken(tokenType::RPAREM);
+    //parserBlockItems(if_state->if_body);
+    btys.emplace(WHILE);
+    ret->loop_=unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>( parserBlockExpr().release()));
+    btys.pop();
     return ret;
 }
+
+// unique_ptr<ast::WhileStmt> Parser::parserWhileStmt(){
+//     unique_ptr<ast::WhileStmt> ret=make_unique<ast::WhileStmt>(curTok->begin);
+//     skipIfCurIs(tokenType::KW_WHILE);
+//     skipIfCurIs(tokenType::LPAREM);
+//     ret->pred=parserExpr();
+//     skipIfCurIs(tokenType::RPAREM);
+//     ret->loop_stmt=std::move(parserStmts());
+//     return ret;
+// }
 unique_ptr<ast::ExprNode> Parser::parserConst(){
     ast::LitType type;
     if(curTokIs(tokenType::INT_BIN))
@@ -464,17 +644,18 @@ unique_ptr<ast::ExprNode> Parser::parserExpr(parserOpPrec prec){
     tokenType l_type=curTok->type;
     selectPreFn(l_type);
     if(prefixFn==nullptr){
-        //cout<<"cur tok"<<curTok->literal<<curTok->tok_pos.line<<"  "<<curTok->tok_pos.column;
+        cout<<"cur tok "<<curTok->literal<<curTok->begin.line<<"  "<<curTok->begin.column;
         exit(35);
         // return nullptr;
     }
     auto leftExp=(this->*prefixFn)();
-    if(curTokIs(tokenType::LPAREM)||curTokIs(tokenType::RIGHT_ARROW)||curTokIs(tokenType::DOT)){
+    while(curTokIs(tokenType::LPAREM)||curTokIs(tokenType::RIGHT_ARROW)||curTokIs(tokenType::DOT)){
         leftExp=parserSuffixExpr(std::move(leftExp));
-    }else if(curTokIs(tokenType::LSQ_BRACE)){
-        AddLvalIndex((ast::LvalExpr*)leftExp.get());
     }
-    while(!curTokIs(tokenType::SEMICOLON)&&prec<curPrecedence()){
+    // if(curTokIs(tokenType::LSQ_BRACE)){
+    //     AddLvalIndex((ast::LvalExpr*)leftExp.get());
+    // }
+    while(!curTokIs(tokenType::SEMICOLON)&&prec<curPrecedence()&&last_pos_.line<=curTok->begin.line){
         selectInFn(curTok->type);
         if (InfixFn==nullptr){
             // return leftExp;
@@ -495,7 +676,28 @@ void  Parser::AddLvalIndex(ast::LvalExpr* lval ){
     }
 }
 unique_ptr<ast::ExprNode> Parser::parserSuffixExpr(unique_ptr<ast::ExprNode> name){
-    assert(0);
+    auto pos=name->pos;
+    unique_ptr<ast::ExprNode> ret;
+    if(curTokIs(tokenType::LPAREM)){
+      ret=parserCall(std::move(name));
+    }else if(curTokIs(tokenType::DOT)){
+      auto selector=make_unique<ast::SelectorExpr>(pos,std::move(name));
+      consumToken(tokenType::DOT);
+      selector->rhs=nextToken();
+      ret=std::move(selector);
+    }else{
+      assert(0);
+    }
+    return ret;
+}
+unique_ptr<ast::ExprNode> Parser::parserStr(){
+    if(curTokIs(tokenType::QUOTE )==false&&curTokIs(tokenType::D_QUOTE )==false){
+      return nullptr;
+    }
+    auto pos=curTok->begin;
+    auto type=curTok->type==tokenType::QUOTE?ast::LitType::RUNE:ast::LitType::STRING;
+    auto literal=make_unique<ast::Literal>(pos,std::move(curTok),type);
+    return literal;
 }
 unique_ptr<ast::CallExpr> Parser::parserCall(unique_ptr<ast::ExprNode> name){
     if(name==nullptr){
@@ -503,9 +705,8 @@ unique_ptr<ast::CallExpr> Parser::parserCall(unique_ptr<ast::ExprNode> name){
     }else if(name->getType()!=(int)ast::ExprType::LVAL_EXPR){
         exit(114);
     }
-    unique_ptr<ast::CallExpr> ret=make_unique<ast::CallExpr>(curTok->begin);
-    ret->call_name=std::move(name);
-    skipIfCurIs(tokenType::LPAREM);
+    unique_ptr<ast::CallExpr> ret=make_unique<ast::CallExpr>(curTok->begin,std::move(name));
+    consumToken(tokenType::LPAREM);
     while(!curTokIs(tokenType::RPAREM)){
         ret->func_r_params.push_back(std::move(parserExpr()));
         if(curTokIs(tokenType::RPAREM)){
@@ -536,7 +737,8 @@ unique_ptr<ast::CallExpr> Parser::parserCall(unique_ptr<ast::ExprNode> name){
 // }
 unique_ptr<ast::ExprNode> Parser::parserLval(){
     unique_ptr<ast::LvalExpr> ret=make_unique<ast::LvalExpr>(curTok->begin,curTok->literal);
-    skipIfCurIs(tokenType::IDENT);
+    // skipIfCurIs(tokenType::IDENT);
+    consumToken({tokenType::IDENT,tokenType::KW_THIS});
         while(curTokIs(tokenType::LSQ_BRACE)){
             skipIfCurIs(tokenType::LSQ_BRACE);
             if(!curTokIs(tokenType::RSQ_BRACE))
@@ -597,30 +799,30 @@ unique_ptr<ast::ExprNode> Parser::parserAssignExpr(unique_ptr<ast::ExprNode> lef
     express->operat=strToBinop(curTok->literal);
     this->nextToken();
     //是否可以以最低优先级表示右结合
-    express->rhs=parserExpr(parserOpPrec::LOWEST);
+    express->rhs=parserExpr(parserOpPrec::HIGHEST);
     return express;    
 };
-unique_ptr<ast::BlockStmt>  Parser::parserBlockItems( ){
-    unique_ptr<ast::BlockStmt>  ret=make_unique<ast::BlockStmt>(curTok->begin);
-    unique_ptr<ast::Statement> tmp;
-    while (!curTokIs(tokenType::RBRACE)) {
-        tmp=parserStmts();
-        if(tmp!=nullptr){
-            ret->block_items.push_back(std::move(tmp));
-        }else{
-            exit(128);
-        }
-    }
-    return ret;
-}
-unique_ptr<ast::BlockStmt> Parser::parserBlock(){
-    ConsumToken(tokenType::LBRACE);
-    unique_ptr<ast::BlockStmt> ret=parserBlockItems();
-    ConsumToken(tokenType::RBRACE);
-    return ret;
-}
+// unique_ptr<ast::BlockStmt>  Parser::parserBlockItems( ){
+//     unique_ptr<ast::BlockStmt>  ret=make_unique<ast::BlockStmt>(curTok->begin);
+//     unique_ptr<ast::Statement> tmp;
+//     while (!curTokIs(tokenType::RBRACE)) {
+//         tmp=parserStmts();
+//         if(tmp!=nullptr){
+//             ret->block_items.push_back(std::move(tmp));
+//         }else{
+//             exit(128);
+//         }
+//     }
+//     return ret;
+// }
+// unique_ptr<ast::BlockStmt> Parser::parserBlock(){
+//     consumToken(tokenType::LBRACE);
+//     unique_ptr<ast::BlockStmt> ret=parserBlockItems();
+//     consumToken(tokenType::RBRACE);
+//     return ret;
+// }
 unique_ptr<Token> Parser::nextToken(){
-    cur_pos=curTok->begin;
+    last_pos_=curTok->begin;
     auto ret=std::move(curTok);
     curTok=std::move(peekTok);
     peekTok=lex->nextToken();
@@ -633,12 +835,17 @@ bool inline Parser::curTokIs(tokenType type){
 bool inline Parser::peekTokIs(tokenType type){
     return this->peekTok->type==type;
 }
-void inline Parser::ConsumToken(tokenType type){
-    this->skipIfCurIs(type);
+void Parser::consumToken(std::vector<tokenType>&&type){
+    // this->skipIfCurIs(type);
+    if(std::find(type.begin(),type.end(),curTok->type)==type.end()){
+        std::cerr<<file_name<<':'<<last_pos_.line<<':'<<last_pos_.column<<':'<<"expect "<<endl;
+        exit(1);
+    }
+    nextToken();
 }
 void Parser::skipIfCurIs(tokenType type){
     if(!curTokIs(type)){
-        static std::map<tokenType,char const *const> m{
+        static std::map<tokenType const,char const *const> m{
             {tokenType::FLOAT,"float"},
             {tokenType::INT,"int"},
             {tokenType::IDENT,"ident"},
@@ -660,9 +867,10 @@ void Parser::skipIfCurIs(tokenType type){
             s=i->second;
         else{
             std::cerr<<"no enough"<<endl;
-            exit(228);
+            std::cerr<<file_name<<':'<<last_pos_.line<<':'<<last_pos_.column<<endl;
+	    exit(228);
         }
-        std::cerr<<file_name<<':'<<cur_pos.line<<':'<<cur_pos.column<<':'<<"expect "<<s<<endl;
+        std::cerr<<file_name<<':'<<last_pos_.line<<':'<<last_pos_.column<<':'<<"expect "<<s<<endl;
         exit(2);
     }
     nextToken();
@@ -671,7 +879,12 @@ void Parser::skipIfCurIs(tokenType type){
 void Parser::selectPreFn(tokenType type){
     this->prefixFn=nullptr;
     switch (type) {
+        case tokenType::KW_IF:
+          prefixFn=&Parser::parserIfExpr;
+        case tokenType::KW_WHILE:
+          prefixFn=&Parser::parserWhileExpr;
         case tokenType::IDENT:
+        case tokenType::KW_THIS:
             if(peekTokIs(tokenType::LSQ_BRACE))
                 prefixFn=&Parser::parserLval;
             else
@@ -688,7 +901,11 @@ void Parser::selectPreFn(tokenType type){
         case tokenType::INT_OCTAL:
         case tokenType::FLOAT:
             prefixFn=&Parser::parserConst;
-            break;
+          break;
+        case tokenType::QUOTE:
+        case tokenType::D_QUOTE:
+	  prefixFn=&Parser::parserStr;
+	  break;
         case tokenType::LPAREM:
             prefixFn=&Parser::parserGroupedExpr;
             break;

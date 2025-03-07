@@ -2,6 +2,7 @@
 #include <memory>
 #include<string>
 #include<iostream>
+#include <sys/types.h>
 #ifndef __LEXER__
 #define __LEXER__
 using std::string,std::cout,std::cin,std::endl,std::unique_ptr,std::make_unique,std::move;
@@ -25,7 +26,9 @@ enum tokenType:int{
     MOD,
     OR,//|
     ESPERLUTTE,//&
-    
+    QUOTE,//'
+
+    D_QUOTE,//"
     D_ESPERLUTTE,//&&
     D_OR,//||
     EQUAL,//==
@@ -43,11 +46,17 @@ enum tokenType:int{
     RSQ_BRACE,//]
     LBRACE,//{
     RBRACE,//}
+    KW_THIS,
+    KW_INIT,
+    KW_MAIN,
+    KW_INOUT,
+    KW_MACRO,
     KW_PACKAGE,
     KW_PUBLIC,
     KW_PRIVATE,    
     KW_PROTECTED,
     KW_STRUCT,
+    KW_RUNE,
     KW_INT64,
     KW_INT32,
     KW_INT16,
@@ -73,10 +82,10 @@ enum tokenType:int{
     KW_BREAK,
 };
 struct Pos{
-    size_t line;
-    size_t column;
-    Pos(size_t,size_t);
-Pos();
+    uint line;
+    uint column;
+    Pos(uint,uint);
+    Pos();
 };
 struct Token{
     string literal;
@@ -94,7 +103,6 @@ struct Token{
 struct Lexer{
     string input;
     size_t position;
-    size_t readPosition;//
     uint line;
     uint column;
     int32_t ch;//当前查看的字符
@@ -106,6 +114,7 @@ struct Lexer{
     int readChar();
     int peekChar();
     unique_ptr<Token>  nextToken();
+    string readStr();
     string readIdentifier();
     string readNumber(tokenType &type);
     

@@ -2,7 +2,6 @@
 #define NODE_H
 
 #include <iostream>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -55,6 +54,7 @@ enum class BinOp{
     MULTI,
     SLASH,
     MOD,
+    ASSIGN,
     DOR,
     DAND,
     EQ,
@@ -69,11 +69,6 @@ enum class UnOp{
     MINUS='-',
     NOT='!',
 };
-enum class SufOp{
-    ARROW='-',
-    CALL='(',
-    ARRAY='[',
-};
 struct SyntaxNode {
     Pos pos;
     SyntaxNode(Pos);
@@ -86,11 +81,18 @@ struct ExprNode: SyntaxNode {
 //     int line;
 //     // 用于访问者模式
     //std::unique_ptr<Token> tok;//记录位置
+    type::Type const* ty=nullptr;
     ExprNode(Pos pos);
     virtual int getType()=0;
     virtual void print(int level=0)=0;
     virtual void accept(ASTVisitor &visitor) =0;
 };
+struct Statement:public SyntaxNode{
+    Statement(Pos pos );
+    // virtual int getType()=0;
+    virtual void print(int level=0)=0;
+};
+	
 struct PrefixExpr:public ExprNode{
     UnOp operat;//type
     unique_ptr<ExprNode> rhs;
@@ -107,23 +109,41 @@ struct PrefixExpr:public ExprNode{
 //     virtual void print(int level=0)override;
 //     virtual void accept(ASTVisitor &visitor)  final;
 // };
+struct BlockExpr:public ExprNode{
+    std::vector<unique_ptr<Statement>>stmts_;
+    unique_ptr<ExprNode> expr_;
+    BlockExpr(Pos pos);
+    ~BlockExpr();
+    virtual int getType(){}
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor);
+};
+
+struct IfExpr:public ExprNode{
+    unique_ptr<ExprNode> cond_;
+    unique_ptr<BlockExpr> then_,else_;
+    IfExpr(Pos pos);
+    ~IfExpr();
+	virtual int getType(){}
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor);
+};
+struct WhileExpr :public  ExprNode{   
+    unique_ptr<ExprNode>cond_;
+    unique_ptr<BlockExpr>loop_;
+    WhileExpr(Pos Pos);
+    ~WhileExpr();
+	virtual int getType(){}
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor)  final;
+};
+
 struct InfixExpr:public ExprNode{
     BinOp operat;
     unique_ptr<ExprNode> rhs;
     unique_ptr<ExprNode> lhs;
     InfixExpr(Pos pos ,unique_ptr<ExprNode> lhs);
     ~InfixExpr();
-    virtual int getType()=0;
-    virtual void print(int level=0)=0;
-    virtual void accept(ASTVisitor &visitor)=0;
-
-};
-struct SuffixExpr:public ExprNode{
-    SufOp operat;
-    unique_ptr<ExprNode> rhs;
-    unique_ptr<ExprNode> lhs;
-    SuffixExpr(Pos pos ,unique_ptr<ExprNode> lhs);
-    ~SuffixExpr();
     virtual int getType()=0;
     virtual void print(int level=0)=0;
     virtual void accept(ASTVisitor &visitor)=0;
@@ -171,11 +191,12 @@ struct BinopExpr:public InfixExpr{
 //     int   i;
 // };
 enum class LitType{
-    INT,
+    INT=1,
     INT_BIN,
     INT_OCTAL,
     INT_HEX,
     FLOAT,
+    DOUBLE,
     STRING,
     RUNE,
 };
@@ -215,10 +236,26 @@ struct CallExpr:public ExprNode{
     unique_ptr<ExprNode> call_name;
     vector<unique_ptr<ast::ExprNode>> func_r_params;
     CallExpr(Pos pos);
-    CallExpr(Pos pos,string name);
+    CallExpr(Pos pos,unique_ptr<ExprNode> call_name);
     virtual int getType();
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
+};
+
+// enum  struct SufOp{
+//     DOT='.',
+//     ARROW='-',
+//     CALL='(',
+//     ARRAY='[',
+// };
+struct SelectorExpr:public ExprNode{
+    // SufOp operat;
+    unique_ptr<ExprNode> lhs;
+    unique_ptr<Token> rhs;
+    SelectorExpr(Pos pos ,unique_ptr<ExprNode> lhs);
+    virtual int getType();
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor);
 };
 
 struct LvalExpr:public ExprNode{
@@ -232,11 +269,6 @@ struct LvalExpr:public ExprNode{
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
 
-};
-struct Statement:public SyntaxNode{
-    Statement(Pos pos );
-    // virtual int getType()=0;
-    virtual void print(int level=0)=0;
 };
 struct ExprStmt:public Statement{
     unique_ptr<ast::ExprNode> expr;
@@ -277,6 +309,7 @@ struct BlockStmt :public  Statement{
 struct DefStmt:public Statement{
     string name;
     // type::Type* type;//变量类型
+    // unique_ptr<Token> type;
     unique_ptr<Token> type;
     DefStmt (string name ,Pos pos,unique_ptr<Token>);
     // virtual int getType()=0;
@@ -322,19 +355,14 @@ struct FuncFParam:public DefStmt{
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
 };
-struct DeclStmt:DefStmt{
-    vector<unique_ptr<DefStmt>> members;    
-    using DefStmt::DefStmt;
-    virtual void print(int level=0);
-    virtual void accept(ASTVisitor &visitor)  final;
-};
+
 /*函数定义*/
 struct FuncDef :public  DefStmt
 {   
     //在父类里
     // string name;
     // ValType val_type;//变量类型
-    unique_ptr<BlockStmt> body;
+    unique_ptr<BlockExpr> body;
     std::vector<unique_ptr<FuncFParam>>  func_f_params;
     // FuncDef(string name ,Pos pos);
     // FuncDef(string name ,Pos pos,type::Type* );
@@ -342,7 +370,7 @@ struct FuncDef :public  DefStmt
     ~FuncDef();
     // virtual int getType();
     virtual void print(int level=0);
-    virtual void accept(ASTVisitor &visitor)  final;
+    virtual void accept(ASTVisitor &visitor);
 
     // bool isReDef(string tok_name);
 };
@@ -412,19 +440,19 @@ struct [[deprecated]] ConstArrDefStmt :ArrDefStmt
     virtual void print(int level=0);
     virtual void accept(ASTVisitor &visitor)  final;
 };
-struct IfStmt :public  Statement
-{   
-    unique_ptr<ExprNode>pred;
-    //可能是一个语句，也可能是一个block
-    unique_ptr<Statement> then_stmt;
-    unique_ptr<Statement> else_stmt;
-    IfStmt(Pos Pos);
-    ~IfStmt();
-    // virtual int getType();
-    virtual void print(int level=0);
-    virtual void accept(ASTVisitor &visitor)  final;
+// struct IfStmt :public  Statement
+// {   
+//     unique_ptr<ExprNode>pred;
+//     //可能是一个语句，也可能是一个block
+//     unique_ptr<Statement> then_stmt;
+//     unique_ptr<Statement> else_stmt;
+//     IfStmt(Pos Pos);
+//     ~IfStmt();
+//     // virtual int getType();
+//     virtual void print(int level=0);
+//     virtual void accept(ASTVisitor &visitor)  final;
 
-};
+// };
 struct WhileStmt :public  Statement
 {   
     unique_ptr<ExprNode>pred;
@@ -457,16 +485,47 @@ struct EmptyStmt :public  Statement
 };
 
 
+struct StructDeclStmt;
+struct MemberFunc :public  FuncDef
+{   
+    StructDeclStmt* parent;
+    using FuncDef::FuncDef;
+    // virtual int getType();
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor)  final;
+    // bool isReDef(string tok_name);
+};
+struct Member :public  ValDefStmt
+{   
+    StructDeclStmt * parent;
+    using ValDefStmt::ValDefStmt;
+    // virtual int getType();
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor)  final;
+    // bool isReDef(string tok_name);
+};
+
+struct StructDeclStmt:DefStmt{
+    vector<string>field;
+    unique_ptr<FuncDef>init;
+    vector<std::pair<unique_ptr<DefStmt>,type::perm>> members;    
+    using DefStmt::DefStmt;
+    virtual void print(int level=0);
+    virtual void accept(ASTVisitor &visitor)  final;
+};
+
 
 
 
 
 class ASTVisitor
 {
-  public:
+public:
     virtual void visit(CompunitNode &node) = 0;
     virtual void visit(FuncFParam &node) = 0;
     virtual void visit(FuncDef &node) = 0;
+    virtual void visit(StructDeclStmt&node) = 0;
+
     // virtual void visit(ValDeclStmt &node) = 0;
     virtual void visit(ValDefStmt &node) = 0;
     virtual void visit(ArrDefStmt &node) = 0;
@@ -476,6 +535,7 @@ class ASTVisitor
     virtual void visit(ExprStmt &node) = 0;
     virtual void visit(AssignStmt &node) = 0;
     virtual void visit(PrefixExpr &node) = 0;
+    virtual void visit(SelectorExpr &node) = 0;
     // virtual void visit(InfixExpr &node) = 0;
     virtual void visit(AssignExpr &node) = 0;
     virtual void visit(RelopExpr &node) = 0;
@@ -491,8 +551,11 @@ class ASTVisitor
     // virtual void visit(FloatConst &node) = 0;
     // virtual void visit(AssignStmt &node) = 0;
     virtual void visit(BlockStmt &node) = 0;
-    virtual void visit(IfStmt &node) = 0;
+    // virtual void visit(IfStmt &node) = 0;
     virtual void visit(WhileStmt &node) = 0;
+    virtual void visit(BlockExpr &node) = 0;
+    virtual void visit(IfExpr &node) = 0;
+    virtual void visit(WhileExpr &node) = 0;
     virtual void visit(CallExpr &node) = 0;
     virtual void visit(RetStmt &node) = 0;
     virtual void visit(ContinueStmt &node) = 0;
@@ -500,6 +563,8 @@ class ASTVisitor
     virtual void visit(EmptyStmt &node) = 0;
 };
 
+
+  
 }
 
 #endif

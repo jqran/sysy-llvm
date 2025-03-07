@@ -1,6 +1,6 @@
 #ifndef TYPE__HPP
 #define TYPE__HPP
-#include <array>
+#include <cassert>
 #include <cstddef>
 #include <map>
 #include <memory>
@@ -12,7 +12,12 @@
 using std::string,std::vector;
 namespace type {
 
-
+enum class perm{
+    PUBLIC=1,
+    DEFAULT,
+    PROTECTED,
+    PRIVATE,
+};
 
 #define TYPE_CONST (1<<0)
 #define TYPE_STATIC (1<<1)
@@ -50,66 +55,114 @@ union Info{
     long size;
     Info(long );
 };
-enum TypeId:size_t{
-    I64,
-    I32,
-    I16,
-    I8,
-    U64,
-    U32,
-    U16,
-    U8,
-    F64,
-    F32,
-    F16,
+enum class TypeId:int{
+    INT,
+    UINT,
+    FLOAT,
     STRUCT,
+    ARRAY,
+    UNIT,
 };
 class Type{
+public:
     // bool mut;
-    size_t size;
-    TypeId type;
-// public:
-//     inline bool isMut(){
-//         return mut;
-//     }
+    TypeId const type;
+private:
+    uint size;
+public:
+    uint inline getSize()const{ return this->size;}
+    void inline setSize(uint size){ this->size=size;}
+    Type(TypeId id,uint size):type(id),size(size){}
+    bool operator==(Type const& other)const;
 };
 class BuiltinType:public Type{
+public:
+    bool operator==(Type const& other)const{
+        return type==other.type&&getSize()==other.getSize();
+    }
+    using Type::Type;
 };
 class DeclType:public Type{
-    string name;
-    vector<std::pair<string,Type*>> members;    
+public:
+    string name_;
+    struct Member{
+        string name_;
+        Type const *type_;
+        perm per_;
+    };
+    vector<Member> members;
+    DeclType(string name):Type(TypeId::STRUCT,0),name_(name){
+    }
+    // bool operator==(Type&other){
+        // if(other.type!=TypeId::STRUCT){
+        //     return false;
+        // }
+    // }
 };
+bool inline Type::operator==(Type const& other)const{
+    if(this->type!=TypeId::STRUCT||other.type!=TypeId::STRUCT){
+        return type==other.type&&getSize()==other.getSize();
+    }else{
+        auto l=(DeclType*)this;
+        auto r=(DeclType*)&other;
+        return l->name_==r->name_;
+    }
+}
 class TypeManager{
-    std::array<BuiltinType,F16+1> builtin_type;
-    std::map<string, unique_ptr<DeclType>> decl_type;
+    // std::array<BuiltinType,F16+1> builtin_type;
+    std::map<string const, unique_ptr<Type const>> decl_type;
     public:
-    BuiltinType* getBuiltin(TypeId id)noexcept{
-        if(id>F16){
-            return nullptr;
-        }
-        return &builtin_type[id];
+    BuiltinType const* int_liter =new BuiltinType(TypeId::INT,0);
+    BuiltinType const*float_liter= new BuiltinType(TypeId::FLOAT,0);
+    Type const *unit_=nullptr;
+    ~TypeManager(){
+      // delete int_liter;
+      // delete float_liter;
+      // delete unit_;
     }
-    bool addDeclType(string name,unique_ptr<DeclType> t){
+    // BuiltinType* getBuiltin(TypeId id)noexcept{
+    //     if(id>F16){
+    //         return nullptr;
+    //     }
+    //     return &builtin_type[id];
+    // }
+    DeclType *addDeclType(unique_ptr<DeclType> t){
+        auto &name=t->name_;
         if(decl_type.count(name))
-            return false;
+            return nullptr;
+        auto ret=t.get();
         decl_type.insert({name,std::move(t)});
-        return true;
+        return ret;
     }
-    DeclType*getStruct(string&s)noexcept{
+    Type const *getType(string&s)noexcept{
         auto const iter=decl_type.find(s);
         if(iter!=decl_type.end()){
             return iter->second.get();
         }else{
+            // assert(0);
             return nullptr;
         }
     }
     // Type* getType(string &s){
 
     // }
+public:
     TypeManager(){
-
+        decl_type.insert({"Int64",std::move(std::make_unique<BuiltinType>(TypeId::INT,64))});
+        decl_type.insert({"Int32",std::move(std::make_unique<BuiltinType>(TypeId::INT,32))});
+        decl_type.insert({"Int16",std::move(std::make_unique<BuiltinType>(TypeId::INT,16))});
+        decl_type.insert({"Int8",std::move(std::make_unique<BuiltinType>(TypeId::INT,8))});
+        decl_type.insert({"Bool",std::move(std::make_unique<BuiltinType>(TypeId::INT,1))});
+        decl_type.insert({"UInt64",std::move(std::make_unique<BuiltinType>(TypeId::UINT,64))});
+        decl_type.insert({"UInt32",std::move(std::make_unique<BuiltinType>(TypeId::UINT,32))});
+        decl_type.insert({"UInt16",std::move(std::make_unique<BuiltinType>(TypeId::UINT,16))});
+        decl_type.insert({"UInt8",std::move(std::make_unique<BuiltinType>(TypeId::UINT,8))});
+        decl_type.insert({"Float64",std::move(std::make_unique<BuiltinType>(TypeId::FLOAT,64))});
+        decl_type.insert({"Float32",std::move(std::make_unique<BuiltinType>(TypeId::FLOAT,32))});
+        decl_type.insert({"Float16",std::move(std::make_unique<BuiltinType>(TypeId::FLOAT,16))});
+        decl_type.insert({"Unit",std::move(std::make_unique<BuiltinType>(TypeId::UNIT,16))});
+	this->unit_=decl_type["Unit"].get();
     }
-    ~TypeManager(){}
 };
 // struct Name  {
 // 	string value;

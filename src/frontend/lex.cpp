@@ -1,11 +1,11 @@
 #include "frontend/lex.hpp"
 #include <cctype>
+#include <cstddef>
 #include <cstdio>
 #include <iostream>
 #include <map>
 #include <memory>
-#include <string>
-Pos::Pos(size_t line,size_t column):line(line),column(column){
+Pos::Pos(uint line,uint column):line(line),column(column){
 }
 Pos::Pos():line(0),column(0){
 }
@@ -23,6 +23,10 @@ enum::tokenType Token::lookupIdent(){
     tokenType ret;
     static const std::map<string const,tokenType>toke_type{
         {"package",tokenType::KW_PACKAGE},
+        {"struct",tokenType::KW_STRUCT},
+        {"this",tokenType::KW_THIS},
+        {"init",tokenType::KW_INIT},
+        {"inout",tokenType::KW_INOUT},
         {"public",tokenType::KW_PUBLIC},
         {"private",tokenType::KW_PRIVATE},
         {"protected",tokenType::KW_PROTECTED},
@@ -53,20 +57,20 @@ enum::tokenType Token::lookupIdent(){
     return tokenType::IDENT;
 }
 
-Lexer::Lexer(string input) :input(input),readPosition(1),position(0),ch(input[0]),line(1),column(1) {}
+Lexer::Lexer(string input) :input(input),position(0),ch(input[0]),line(1),column(1) {}
 int Lexer::readChar(){
     ch=peekChar();
     this->position++;
-    this->readPosition++;
+    // this->readPosition++;
     this->column++;
     return ch;
 }
 int Lexer::peekChar(){
     int ret;
-    if(this->readPosition>this->input.length()){
+    if(this->position+1>this->input.length()){
         ret=0;
     }else{
-        ret=this->input[readPosition];      
+        ret=this->input[position+1];      
     }
     return ret;
 }
@@ -146,6 +150,9 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         break;
     case ',':
         tok=std::make_unique<Token>(",",tokenType::COMMA);
+        break;    
+    case '.':
+        tok=std::make_unique<Token>(".",tokenType::DOT);
         break;
     case ';':
         tok=std::make_unique<Token>(";",tokenType::SEMICOLON);
@@ -176,7 +183,11 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         // flagRead=false;
         break;
     default:
-        if(isalpha(this->ch)||this->ch=='_'){
+        if(this->ch=='\"'||this->ch=='\''){
+            auto  ttype=(this->ch=='\"')?D_QUOTE:QUOTE;
+	    string s=readStr();
+	    tok=std::make_unique<Token>(s,ttype,begin,Pos{this->line,this->column});
+        }else if(isalpha(this->ch)||this->ch=='_'){
             string s=readIdentifier();
             tok=std::make_unique<Token>(s,begin,Pos{this->line,this->column});
             // flagRead=false;
@@ -184,7 +195,7 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
         }else if(isdigit(this->ch)||ch=='.'){
             tokenType type;
             string s{readNumber(type)};
-            tok=std::make_unique<Token>(s,(tokenType)type,begin,Pos{this->line,this->column});
+            tok=std::make_unique<Token>(s,type,begin,Pos{this->line,this->column});
             // if(tok->literal[1]=='x'||tok->literal[1]=='X'){
             //     tok->type=INT_HEX;
             // }else if(tok->literal[1]=='b'||tok->literal[1]=='B'){
@@ -209,9 +220,21 @@ std::unique_ptr<Token>   Lexer::nextToken(/*std::unique_ptr<Lexer> l*/){
     return std::move(tok);
 
 }
+string Lexer::readStr(){
+    char start=ch;
+    auto beginpos=this->position;
+    size_t sublen=0;
+    do{
+        readChar();
+        sublen++;
+    }while(ch!=start);
+    readChar();
+    ++sublen;
+    return this->input.substr(beginpos,sublen);
+}
 string Lexer::readIdentifier(){
-    int beginpos=this->position;
-    int sublen=0;
+    auto beginpos=this->position;
+    size_t sublen=0;
     if(isalpha(this->input[position])||this->input[position]=='_'){
         readChar();
         sublen++;
@@ -287,19 +310,19 @@ string Lexer::readNumber(tokenType &type){
     int dot_num=0;
     bool front0=false;
     if(this->input[position]=='0'){
-        if(this->input[readPosition]=='x'||this->input[readPosition]=='X'){
+        if(this->input[position+1]=='x'||this->input[position+1]=='X'){
             readChar();
             readChar();
             sublen+=2;
             // tmpIsDigit=isxdigit;
             type=tokenType::INT_HEX;
-        }else if(this->input[readPosition]=='b'||this->input[readPosition]=='B'){
+        }else if(this->input[position+1]=='b'||this->input[position+1]=='B'){
             readChar();
             readChar();
             sublen+=2;
             // tmpIsDigit=isbdigit;
             type=tokenType::INT_BIN;
-        }else if(isodigit(this->input[readPosition])){
+        }else if(isodigit(this->input[position+1])){
             // tmpIsDigit=isodigit;
             readChar();
             ++sublen;
