@@ -78,6 +78,13 @@ void cjir::While::print(int lv){
     this->loop_->print(lv);
     --lv;
 }
+void cjir::Unary::print(int lv){
+    LevelPrint(lv,((char const *)"operater")+(char)(this->op));  
+    ++lv;
+    this->rhs_->print(lv);
+    --lv;
+}
+
 void cjir::Bin::print(int lv){
     LevelPrint(lv,"operater"+ binopTOStr(this->op));  
     ++lv;
@@ -97,11 +104,15 @@ void cjir::VarDecl::print(int lv){
 	this->init_->print(lv);
     }else{
 	LevelPrint(lv, "decl "+this->name_ );
-	this->init_->print(lv);
     }
     LevelPrint(lv, "decl end" );
 }
-void cjir::Func::print(int lv){
+void cjir::RetStmt::print(int lv){
+    LevelPrint(lv, "return ");
+    this->expr_->print(lv);
+}
+
+void cjir::FuncDecl::print(int lv){
     LevelPrint(lv, "func "+this->name_);
     ++lv;
     for(auto &[expr,ty]:this->param_){
@@ -128,3 +139,77 @@ void cjir::Module::print(int lv){
 	i->print(lv);
     }
 }
+void cjir::ExprStmt::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::Lval::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::Unary::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::Bin::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+void cjir::Rel::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+void cjir::Or::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+void cjir::And::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::Assign::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::Block::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::If::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::While::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::Lit::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::VarDecl::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::RetStmt::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::FuncDecl::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::MemVar::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::MemFunc::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::StructDecl::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void cjir::Module::accept(cjir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+

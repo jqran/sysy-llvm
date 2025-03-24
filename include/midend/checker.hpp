@@ -13,17 +13,6 @@
 //     ScopeType const type;
 //     Scope(ast::BlockExpr* block,ScopeType type):block(block),type(type){}
 // };
-enum class ScopeType:int{
-    GLOBAL=1,
-    FUNC,
-    STRUCT,
-    IF,
-    ELSE,
-    LOOP,
-    TRY,
-    CATCH,
-    EMPTY,
-};
 class Checker:public ast::ASTVisitor{
     std::vector<std::pair<std::map<std::string,type::Type const*>,ScopeType>> scopes;
     unique_ptr<type::TypeManager> type_man;
@@ -68,10 +57,13 @@ class Checker:public ast::ASTVisitor{
     virtual void visit(ast::BreakStmt &node) ;
     virtual void visit(ast::EmptyStmt &node) ;
 public:
-	Checker();
-	type::Type const * findDef(string&s);
-	unique_ptr<type::TypeManager> moveTypeMan(){return std::move(this->type_man);}
+    Checker();
+    type::Type const * findDef(string&s);
+    unique_ptr<type::TypeManager> moveTypeMan(){return std::move(this->type_man);}
+    auto moveModule(){
+	return this->module_;
+    }
 private:
-	type::Type const * get_binexpr_type(type::Type const *const lhs,type::Type const *const rhs);
-	bool auto_type_conversion(type::Type const *const type,type::Type const *const target_type);
+    type::Type const * get_binexpr_type(type::Type const *const lhs,type::Type const *const rhs);
+    bool auto_type_conversion(type::Type const *const type,type::Type const *const target_type);
 };

@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <sys/types.h>
 #include <utility>
 #include <vector>
@@ -56,6 +57,7 @@ union Info{
     Info(long );
 };
 enum class TypeId:int{
+    VOID,
     INT,
     UINT,
     FLOAT,
@@ -113,6 +115,7 @@ class TypeManager{
     std::map<string const, unique_ptr<Type const>> decl_type;
     public:
     BuiltinType const* int_liter =new BuiltinType(TypeId::INT,0);
+    BuiltinType const* void_ =new BuiltinType(TypeId::VOID,0);
     BuiltinType const*float_liter= new BuiltinType(TypeId::FLOAT,0);
     Type const *unit_=nullptr;
     ~TypeManager(){
@@ -126,6 +129,9 @@ class TypeManager{
     //     }
     //     return &builtin_type[id];
     // }
+    BuiltinType const*getVoid(){
+	return void_;
+    }
     DeclType *addDeclType(unique_ptr<DeclType> t){
         auto &name=t->name_;
         if(decl_type.count(name))
@@ -134,7 +140,7 @@ class TypeManager{
         decl_type.insert({name,std::move(t)});
         return ret;
     }
-    Type const *getType(string&s)noexcept{
+    Type const *getType(std::string s)noexcept{
         auto const iter=decl_type.find(s);
         if(iter!=decl_type.end()){
             return iter->second.get();

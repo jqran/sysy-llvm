@@ -9,6 +9,19 @@
 #include "frontend/lex.hpp"
 #include "frontend/type.hpp"
 using std::cout,std::string,std::vector;
+
+enum class ScopeType:int{
+    GLOBAL=1,
+    FUNC,
+    STRUCT,
+    IF,
+    ELSE,
+    LOOP,
+    TRY,
+    CATCH,
+    EXPR,
+};
+
 namespace ast {
 class ASTVisitor;
 
@@ -112,7 +125,8 @@ struct PrefixExpr:public ExprNode{
 struct BlockExpr:public ExprNode{
     std::vector<unique_ptr<Statement>>stmts_;
     unique_ptr<ExprNode> expr_;
-    BlockExpr(Pos pos);
+    ScopeType scope_ty_;
+    BlockExpr(Pos pos,ScopeType);
     ~BlockExpr();
     virtual int getType(){}
     virtual void print(int level=0);
@@ -121,7 +135,7 @@ struct BlockExpr:public ExprNode{
 
 struct IfExpr:public ExprNode{
     unique_ptr<ExprNode> cond_;
-    unique_ptr<BlockExpr> then_,else_;
+    unique_ptr<ExprNode> then_,else_;
     IfExpr(Pos pos);
     ~IfExpr();
 	virtual int getType(){}
@@ -196,6 +210,7 @@ enum class LitType{
     INT_OCTAL,
     INT_HEX,
     FLOAT,
+    BOOL,
     DOUBLE,
     STRING,
     RUNE,
@@ -363,7 +378,7 @@ struct FuncDef :public  DefStmt
     // string name;
     // ValType val_type;//变量类型
     unique_ptr<BlockExpr> body;
-    std::vector<unique_ptr<FuncFParam>>  func_f_params;
+    std::vector<std::pair<string,unique_ptr<Token>>>  func_f_params;
     // FuncDef(string name ,Pos pos);
     // FuncDef(string name ,Pos pos,type::Type* );
     using DefStmt::DefStmt;

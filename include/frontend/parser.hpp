@@ -47,17 +47,11 @@ struct Parser{
     unique_ptr<ast::ArrDefStmt> parserArrDefStmt(bool ismut);
     unique_ptr<ast::InitializerExpr> parserInitlizer();
     // unique_ptr<ast::ValDeclStmt> parserValDeclStmt(type::Type*);
+    unique_ptr<Token>  parserFuncTy();
     unique_ptr<ast::FuncDef> parserFuncStmt();
     unique_ptr<ast::FuncDef> parserSpecialFuncStmt();
     // unique_ptr<ast::IfStmt> parserIfStmt();
     std::variant<unique_ptr<ast::ExprNode>,unique_ptr<ast::Statement>> parserStmtExpr();
-    enum BlockType{
-		EMPTY=1,
-		WHILE,
-		IF,
-		ELSE,
-		FUNC,
-    };
     unique_ptr<ast::ExprNode> parserBlockExpr();
     unique_ptr<ast::ExprNode> parserIfExpr();
     unique_ptr<ast::ExprNode> parserWhileExpr();

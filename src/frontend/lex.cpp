@@ -50,6 +50,8 @@ enum::tokenType Token::lookupIdent(){
         {"Float64",tokenType::KW_FLOAT64},
         {"Float32",tokenType::KW_FLOAT32},
         {"Float16",tokenType::KW_FLOAT16},
+	{"false",tokenType::KW_FALSE},
+	{"true",tokenType::KW_TRUE},
     };
     if(auto iter=toke_type.find(this->literal);iter!=toke_type.end()){
         return iter->second;

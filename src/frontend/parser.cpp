@@ -19,7 +19,7 @@
 //     curTok=lex->nextToken();
 //     peekTok=lex->nextToken();
 // }
-static std::stack<Parser::BlockType> btys;
+static std::stack<ScopeType> btys;
 const std::map<tokenType, parserOpPrec>Parser::precedences= {
     {tokenType::ASSIGN,parserOpPrec::OP_ASSIGN},
     {tokenType::D_OR,parserOpPrec::OP_DOR},
@@ -380,6 +380,13 @@ unique_ptr<ast::InitializerExpr> Parser::parserInitlizer(){
     skipIfCurIs(tokenType::RBRACE);
     return ret;
 }
+unique_ptr<Token> Parser::parserFuncTy(){
+    if(curTokIs(tokenType::COLON)){
+	nextToken();
+	return nextToken();
+    }
+    return nullptr;
+}
 unique_ptr<ast::FuncDef> Parser::parserFuncStmt(){
     Pos begin=curTok->begin;
     nextToken();
@@ -394,13 +401,24 @@ unique_ptr<ast::FuncDef> Parser::parserFuncStmt(){
     consumToken(tokenType::LPAREM);
     
     //skip(
-    parserArg(fun->func_f_params);
-    
+    // parserArg(fun->func_f_params);
+    while(!curTokIs(tokenType::RPAREM)){
+	string arg=curTok->literal;
+	consumToken(tokenType::IDENT);
+	consumToken(tokenType::COLON);
+	fun->func_f_params.push_back({arg, nextToken()});
+	if(curTokIs(tokenType::COLON)){
+	    consumToken(tokenType::COMMA);
+	}else{
+	    assert(tokenType::RPAREM);
+	}
+    }
     consumToken(tokenType::RPAREM);
     // if(curTokIs(tokenType::SEMICOLON)){
     //     nextToken();
     // }else {
-    btys.emplace(FUNC);
+    btys.emplace(ScopeType::FUNC);
+    fun->type=parserFuncTy();
     assert(curTokIs(tokenType::LBRACE));
     fun->body= unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>(parserBlockExpr().release()));
     // }
@@ -427,13 +445,23 @@ unique_ptr<ast::FuncDef> Parser::parserSpecialFuncStmt(){
     consumToken(tokenType::LPAREM);
     
     //skip(
-    parserArg(fun->func_f_params);
-    
+    while(!curTokIs(tokenType::RPAREM)){
+	string arg=curTok->literal;
+	consumToken(tokenType::IDENT);
+	consumToken(tokenType::COLON);
+	fun->func_f_params.push_back({arg, nextToken()});
+	if(curTokIs(tokenType::COLON)){
+	    consumToken(tokenType::COMMA);
+	}else{
+	    assert(tokenType::RPAREM);
+	}
+    }
     consumToken(tokenType::RPAREM);
     // if(curTokIs(tokenType::SEMICOLON)){
     //     nextToken();
     // }else {
-    btys.emplace(FUNC);
+    btys.emplace(ScopeType::FUNC);
+    fun->type=parserFuncTy();
     assert(curTokIs(tokenType::LBRACE));
     fun->body= unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>(parserBlockExpr().release()));
     // }
@@ -524,8 +552,8 @@ std::variant<unique_ptr<ast::ExprNode>,unique_ptr<ast::Statement>> Parser::parse
 }
 unique_ptr<ast::ExprNode> Parser::parserBlockExpr(){
   assert(btys.empty()==false);
-  BlockType bty=btys.top();
-  auto ret=make_unique<ast::BlockExpr>(curTok->begin);
+  // ScopeType bty=btys.top();
+  auto ret=make_unique<ast::BlockExpr>(curTok->begin,btys.top());
   consumToken(tokenType::LBRACE);
   while(!curTokIs(tokenType::RBRACE)){
     auto se=parserStmtExpr();
@@ -554,16 +582,21 @@ unique_ptr<ast::ExprNode> Parser::parserIfExpr(){
     ret->cond_=parserExpr();
     consumToken(tokenType::RPAREM);
     //parserBlockItems(if_state->if_body);
-    btys.emplace(IF);
+    btys.emplace(ScopeType::IF);
     auto block=parserBlockExpr().release();
     btys.pop();
     ret->then_=unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>(block));
     if(curTokIs(tokenType::KW_ELSE)){
         nextToken();
         //parserBlockItems(if_state->else_body);
-        btys.emplace(ELSE);
-	auto block=parserBlockExpr().release();
-	ret->else_=unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>( block));
+        btys.emplace(ScopeType::ELSE);
+	if(curTokIs(tokenType::KW_IF)){
+	    ret->else_=parserIfExpr();
+	}else
+	    ret->else_=parserBlockExpr();
+	// auto block=parserBlockExpr().release();
+
+	// ret->else_=unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>( block));
 	btys.pop();
     }
     return ret;
@@ -575,7 +608,7 @@ unique_ptr<ast::ExprNode> Parser::parserWhileExpr(){
     ret->cond_=parserExpr();
     consumToken(tokenType::RPAREM);
     //parserBlockItems(if_state->if_body);
-    btys.emplace(WHILE);
+    btys.emplace(ScopeType::LOOP);
     ret->loop_=unique_ptr<ast::BlockExpr>(static_cast<ast::BlockExpr*>( parserBlockExpr().release()));
     btys.pop();
     return ret;
@@ -602,6 +635,9 @@ unique_ptr<ast::ExprNode> Parser::parserConst(){
         type=ast::LitType::INT;
     else if(curTokIs(tokenType::FLOAT))
         type=ast::LitType::FLOAT;
+    else if(curTokIs(tokenType::KW_FALSE)||curTokIs(tokenType::KW_TRUE)){
+	type=ast::LitType::BOOL;
+    }
     else exit(0);
     // else if(curTokIs(tokenType::CHAR))
 
@@ -799,7 +835,7 @@ unique_ptr<ast::ExprNode> Parser::parserAssignExpr(unique_ptr<ast::ExprNode> lef
     express->operat=strToBinop(curTok->literal);
     this->nextToken();
     //是否可以以最低优先级表示右结合
-    express->rhs=parserExpr(parserOpPrec::HIGHEST);
+    express->rhs=parserExpr(parserOpPrec::LOWEST);
     return express;    
 };
 // unique_ptr<ast::BlockStmt>  Parser::parserBlockItems( ){
@@ -901,7 +937,11 @@ void Parser::selectPreFn(tokenType type){
         case tokenType::INT_OCTAL:
         case tokenType::FLOAT:
             prefixFn=&Parser::parserConst;
-          break;
+            break;
+        case tokenType::KW_FALSE:
+        case tokenType::KW_TRUE:
+	    prefixFn=&Parser::parserConst;
+	    break;
         case tokenType::QUOTE:
         case tokenType::D_QUOTE:
 	  prefixFn=&Parser::parserStr;

@@ -4,6 +4,7 @@
 #include "frontend/type.hpp"
 #include "midend/hir.hpp"
 #include <cassert>
+#include <cstddef>
 #include <iostream>
 #include <memory>
 #include <stack>
@@ -11,7 +12,7 @@
 #include <vector>
 
 using uToken=unique_ptr<Token>;
-static cjir::Func  *cur_func=nullptr;
+static cjir::FuncDecl  *cur_func=nullptr;
 static unique_ptr<cjir::Expr>  tmp_expr=nullptr;
 static unique_ptr<cjir::Stmt>  tmp_stmt=nullptr;
 static type::Type const *tmp_type=nullptr;
@@ -20,11 +21,101 @@ static type::Type const * bool_type=nullptr;
 static ::std::stack<cjir::Block*> blocks{};
 static ::std::map<cjir::Expr*,type::Type const *>expr_ty;
 static ::std::map<cjir::Decl*,type::Type const *>decl_ty;
+static ::std::vector<type::Type const*>cur_func_tys;
+static type::Type const *  INT_LIT_TY=nullptr;
+static type::Type const *  FLOAT_LIT_TY=nullptr;
 template  <typename target_ty>
 bool is_ty(cjir::Node  *const ptr){
     return static_cast<target_ty*>(ptr);
 }
 
+static type::Type const*func_ty_check(type::Type const* def=nullptr){
+    auto rm_lit_ty=[&](){
+	auto iter=cur_func_tys.begin();
+	while(iter!=cur_func_tys.end()){
+	    if(*iter==INT_LIT_TY||*iter==FLOAT_LIT_TY){
+		iter=cur_func_tys.erase(iter);
+	    }
+	}
+    };
+    //defed
+    if(def!=nullptr){
+	rm_lit_ty();
+	for(auto i:cur_func_tys){
+	    if(i!=def)
+		return nullptr;
+	}
+	return def;
+    }else{
+	if(cur_func_tys.size()==1){
+	    return cur_func_tys.front();
+	}
+	type::Type const* int_lit_ty=0,*float_lit_ty=0;
+	for(auto i:cur_func_tys){
+	    if(i==INT_LIT_TY){
+		int_lit_ty=INT_LIT_TY;
+	    }else if(i==FLOAT_LIT_TY){
+		float_lit_ty=FLOAT_LIT_TY;
+	    }
+	}
+	rm_lit_ty();
+	auto t=cur_func_tys.front();
+	for(auto i:cur_func_tys){
+	    if(t!=i)
+		return nullptr;
+	}
+	if(int_lit_ty!=0){
+	    if(t->type!=type::TypeId::INT&&t->type!=type::TypeId::UINT){
+		return nullptr;
+	    }
+	}else if(float_lit_ty!=0){
+	    if(t->type!=type::TypeId::FLOAT){
+		return nullptr;
+	    }
+	}
+	return t;
+    }
+}
+// void Checker::tranTy(cjir::Expr* l,cjir::Expr* r){
+//     if(l->ty==tye)
+// }
+
+cjir::Bin::Binop astbin2hirbin(ast::BinOp op){
+    using ast::BinOp;
+    switch (op) {
+    case BinOp::PlUS:
+        return cjir::Bin::Binop::PlUS;
+    case BinOp::MINUS:
+        return cjir::Bin::Binop::MINUS;
+    case BinOp::MULTI:
+        return cjir::Bin::Binop::MULTI;
+    case BinOp::SLASH:
+        return cjir::Bin::Binop::SLASH;
+    case BinOp::MOD:
+        return cjir::Bin::Binop::MOD;
+    case BinOp::ASSIGN:
+        return cjir::Bin::Binop::ASSIGN;
+    case BinOp::EQ:
+        return cjir::Bin::Binop::EQ;
+    case BinOp::NOT_EQ:
+        return cjir::Bin::Binop::NOT_EQ;
+    case BinOp::DOR:
+        return cjir::Bin::Binop::LOR;
+    case BinOp::DAND:
+        return cjir::Bin::Binop::LAND;
+    case BinOp::LT:
+        return cjir::Bin::Binop::LT;
+    case BinOp::LE:
+        return cjir::Bin::Binop::LE;
+    case BinOp::GT:
+        return cjir::Bin::Binop::GT;
+    case BinOp::GE:
+        return cjir::Bin::Binop::GE;
+    default:
+        exit(10);
+    }
+
+}
 type::Type const* Checker::get_binexpr_type(type::Type const *const lhs,type::Type const *const rhs){
     if(lhs==rhs){
 	return lhs;
@@ -70,6 +161,8 @@ Checker::Checker():scopes({{{},ScopeType::GLOBAL}}),type_man(std::make_unique<ty
     bool_type=this->type_man->getType(s);
 }
 void Checker::visit(ast::CompunitNode &node) {
+    INT_LIT_TY=type_man->int_liter;
+    FLOAT_LIT_TY=type_man->float_liter;
     this->module_=new cjir::Module();
     for(auto &stmt:node.global_defs){
 	auto &defs=scopes.front().first;
@@ -94,33 +187,34 @@ void Checker::visit(ast::FuncFParam &node) {
     // node.type=type;
 }
 void Checker::visit(ast::FuncDef &node) {
+    cur_func_tys.clear();
     scopes.push_back({{},ScopeType::FUNC});
     auto &defs=scopes.back().first;
     type::Type const*ret_ty=nullptr;
     if(node.type!=nullptr){
 	ret_ty=this->type_man->getType(node.type->literal);
     }
-    unique_ptr<cjir::Func> ufunc=nullptr;
+    unique_ptr<cjir::FuncDecl> ufunc=nullptr;
     if(this->scopes.back().second==ScopeType::STRUCT){
 	ufunc=std::make_unique<cjir::MemFunc>(ret_ty,node.name);
     }else{
-	ufunc=std::make_unique<cjir::Func>(ret_ty,node.name);
+	ufunc=std::make_unique<cjir::FuncDecl>(ret_ty,node.name);
     }
     
     cur_func=ufunc.get();
     blocks.push(ufunc->block_.get());
     // this->module_->defs_.push_back(std::move(ufunc));
     for(auto &arg:node.func_f_params){
-        std::string def{arg->name};
+        std::string def{arg.first};
         if(defs.count(def)){
             std::cerr<<"Redefinition of declaration '"<<def<<'\''<<endl;
             assert(0);
         }
-        auto &type=arg->type;
+        auto type=arg.second.get();
         if(type==0){
             assert(0);
         }
-	arg->accept(*this);
+	// arg->accept(*this);
 	// ufunc->param_.push_back({ std::move(tmp_expr),nullptr});
         defs.insert({def,type_man->getType(type->literal)});
         // arg->accept(*this);
@@ -129,7 +223,13 @@ void Checker::visit(ast::FuncDef &node) {
     assert(is_ty<cjir::Block>(tmp_expr.get()));
     
     ufunc->block_=unique_ptr<cjir::Block>(static_cast<cjir::Block*>(tmp_expr.release()));
-    
+    if(ufunc->block_->expr==nullptr&&ret_ty==nullptr){
+	ret_ty=type_man->getVoid();
+    }else{
+	ret_ty=func_ty_check(ret_ty);
+	assert(ret_ty!=0);
+    }
+    ufunc->ty_=ret_ty;
     scopes.pop_back();
     cur_func=nullptr;
     tmp_stmt=std::move(ufunc);
@@ -236,7 +336,7 @@ void Checker::visit(ast::AssignStmt &node) {tmp_type=nullptr;
 void Checker::visit(ast::PrefixExpr &node) {
     node.rhs->accept(*this);
     auto expr=std::move(tmp_expr);
-  
+    tmp_expr=make_unique<cjir::Unary>(static_cast<cjir::Unary::UnOp>(node.operat),std::move(expr));
     // assert(node.operat!=);
     assert(false);
 }
@@ -255,7 +355,7 @@ void Checker::visit(ast::AssignExpr &node) {
     tmp_type=this->get_binexpr_type(ltype, rtype);
     node.ty=tmp_type;
     assert(tmp_type!=nullptr);
-    tmp_expr=make_unique<cjir::Bin>(static_cast<cjir::Bin::Binop>(node.operat),std::move(l),std::move(r));
+    tmp_expr=make_unique<cjir::Assign>(astbin2hirbin(node.operat),std::move(l),std::move(r));
     expr_ty.emplace(tmp_expr.get(),tmp_type);
 }
 void Checker::visit(ast::RelopExpr &node) {    
@@ -273,7 +373,7 @@ void Checker::visit(ast::RelopExpr &node) {
     tmp_type=this->get_binexpr_type(ltype, rtype);
     node.ty=tmp_type;
     assert(tmp_type!=nullptr);
-    tmp_expr=make_unique<cjir::Bin>(static_cast<cjir::Bin::Binop>(node.operat),std::move(l),std::move(r));
+    tmp_expr=make_unique<cjir::Rel>(astbin2hirbin(node.operat),std::move(l),std::move(r));
     expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
@@ -293,7 +393,7 @@ void Checker::visit(ast::EqExpr &node) {
     // node.ty=tmp_type;
   
     assert(tmp_type!=nullptr);
-    tmp_expr=make_unique<cjir::Bin>(static_cast<cjir::Bin::Binop>(node.operat),std::move(l),std::move(r));
+    tmp_expr=make_unique<cjir::Rel>(astbin2hirbin(node.operat),std::move(l),std::move(r));
     expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
@@ -313,7 +413,7 @@ void Checker::visit(ast::AndExp &node) {
     // node.ty=tmp_type;
   
     assert(tmp_type!=nullptr);
-    tmp_expr=make_unique<cjir::And>(static_cast<cjir::Bin::Binop>(node.operat),std::move(l),std::move(r));
+    tmp_expr=make_unique<cjir::And>(cjir::Bin::LAND,std::move(l),std::move(r));
     expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
@@ -333,7 +433,7 @@ void Checker::visit(ast::ORExp &node) {
     // node.ty=tmp_type;
   
     assert(tmp_type!=nullptr);
-    tmp_expr=make_unique<cjir::Or>(static_cast<cjir::Bin::Binop>(node.operat),std::move(l),std::move(r));
+    tmp_expr=make_unique<cjir::Or>(cjir::Bin::LOR,std::move(l),std::move(r));
     expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
@@ -350,7 +450,7 @@ void Checker::visit(ast::BinopExpr &node) {
     tmp_type=this->get_binexpr_type(ltype, rtype);
     node.ty=tmp_type;
     assert(tmp_type!=nullptr);
-    tmp_expr=make_unique<cjir::Bin>(static_cast<cjir::Bin::Binop>(node.operat),std::move(l),std::move(r));
+    tmp_expr=make_unique<cjir::Bin>(astbin2hirbin(node.operat),std::move(l),std::move(r));
     expr_ty.emplace(tmp_expr.get(),tmp_type);
 }
 void Checker::visit(ast::LvalExpr &node) {
@@ -367,6 +467,8 @@ void Checker::visit(ast::Literal &node) {
         tmp_type=type_man->int_liter;
     }else if(node.type==ast::LitType::FLOAT){
         tmp_type=type_man->float_liter;
+    }else if(node.type==ast::LitType::BOOL){
+        tmp_type=type_man->getType("Bool");
     }else{
         assert(0);
     }
@@ -408,10 +510,10 @@ void Checker::visit(ast::IfExpr &node) {
 	node.else_->accept(*this);
 	elsee=std::move(tmp_expr);
 	{
-	    assert(is_ty<cjir::Block>(elsee.get()));
+	    assert(is_ty<cjir::Block>(elsee.get())||is_ty<cjir::If>(elsee.get()));
 	}
 	tmp_type=get_binexpr_type(then->ty,elsee->ty);
-	tmp_expr=make_unique<cjir::If>(tmp_type, std::move(cond),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(then.release())),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(then.release())));
+	tmp_expr=make_unique<cjir::If>(tmp_type, std::move(cond),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(then.release())),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(elsee.release())));
       
     }else{
 	tmp_type=then->ty;
@@ -439,7 +541,7 @@ void Checker::visit(ast::WhileExpr &node) {
     // auto tmp_type=tmp_expr->ty;
 }
 void Checker::visit(ast::BlockExpr &node) {
-    auto block=make_unique<cjir::Block>();
+    auto block=make_unique<cjir::Block>(node.scope_ty_);
     for(auto & s:node.stmts_){
 	s->accept(*this);
 	block->stmts_.push_back( std::move(tmp_stmt));
@@ -472,9 +574,9 @@ void Checker::visit(ast::RetStmt &node) {
     }
     node.expr->accept(*this);
     type::Type const * type=tmp_type;
-    auto target_type=this->findDef(cur_func->name_);
-    assert(auto_type_conversion(type,target_type ));
-    tmp_stmt=make_unique<cjir::ExprStmt>(std::move(tmp_expr));
+    // auto target_type=this->findDef(cur_func->name_);
+    // assert(auto_type_conversion(type,target_type ));
+    tmp_stmt=make_unique<cjir::RetStmt>(std::move(tmp_expr));
 }
 void Checker::visit(ast::ContinueStmt &node) {
     bool is_loop=false;

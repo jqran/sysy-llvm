@@ -42,7 +42,7 @@ InitializerExpr::InitializerExpr(Pos pos):ExprNode(pos){};
 // FloatConst::FloatConst(Pos pos,valUnion val):Literal(pos,val){};
 IfExpr::IfExpr(Pos pos):ExprNode(pos){};
 WhileExpr::WhileExpr(Pos pos):ExprNode(pos){}
-BlockExpr::BlockExpr(Pos pos):ExprNode(pos){}
+BlockExpr::BlockExpr(Pos pos,ScopeType s_ty):ExprNode(pos),scope_ty_(s_ty){}
 Literal::Literal(Pos pos,unique_ptr<Token>literal,LitType type):ExprNode(pos),literal(std::move(literal)),type(type){};
 PrefixExpr::PrefixExpr(Pos pos):ExprNode(pos){};
 InfixExpr::InfixExpr(Pos pos,unique_ptr<ExprNode> lhs):ExprNode(pos),lhs(std::move(lhs)){}
@@ -277,7 +277,8 @@ void FuncDef::print(int level){
     LevelPrint(level, "(", true);
     for(auto &i :func_f_params){
         LevelPrint(level, "FuncParam", false);
-        i->print(level);
+        // i->print(level);
+	LevelPrint(level, i.first, false);
     }
     LevelPrint(level, ")", true);
     if(body){

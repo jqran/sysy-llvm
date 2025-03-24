@@ -80,6 +80,8 @@ enum tokenType:int{
     KW_VOID,
     KW_CONTINUE,
     KW_BREAK,
+    KW_FALSE,
+    KW_TRUE,
 };
 struct Pos{
     uint line;
