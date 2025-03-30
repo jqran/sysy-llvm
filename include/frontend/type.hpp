@@ -3,7 +3,6 @@
 #include <cassert>
 #include <cstddef>
 #include <map>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <sys/types.h>
@@ -112,16 +111,32 @@ bool inline Type::operator==(Type const& other)const{
 }
 class TypeManager{
     // std::array<BuiltinType,F16+1> builtin_type;
-    std::map<string const, unique_ptr<Type const>> decl_type;
-    public:
-    BuiltinType const* int_liter =new BuiltinType(TypeId::INT,0);
-    BuiltinType const* void_ =new BuiltinType(TypeId::VOID,0);
-    BuiltinType const*float_liter= new BuiltinType(TypeId::FLOAT,0);
-    Type const *unit_=nullptr;
+    std::map<std::string_view const, Type const* const> decl_type;
+    BuiltinType const *const i64_;
+    BuiltinType const *const i32_;
+    BuiltinType const *const i16_;
+    BuiltinType const *const i8_;
+    BuiltinType const *const u64_;
+    BuiltinType const *const u32_;
+    BuiltinType const *const u16_;
+    BuiltinType const *const u8_;
+    BuiltinType const *const bool_;
+    BuiltinType const *const f64_;
+    BuiltinType const *const f32_;
+    BuiltinType const *const f16_;
+    BuiltinType const *const unit_;
+public:
+    BuiltinType const* const int_liter =new BuiltinType(TypeId::INT,0);
+    BuiltinType const* const void_;
+    BuiltinType const* const float_liter= new BuiltinType(TypeId::FLOAT,0);
+    // Type const *unit_=nullptr;
+    // Type const *unit_=nullptr;
     ~TypeManager(){
-      // delete int_liter;
-      // delete float_liter;
-      // delete unit_;
+	delete int_liter;
+	delete float_liter;
+	for(auto [_,p]:decl_type){
+	    delete p;
+	}
     }
     // BuiltinType* getBuiltin(TypeId id)noexcept{
     //     if(id>F16){
@@ -129,21 +144,60 @@ class TypeManager{
     //     }
     //     return &builtin_type[id];
     // }
-    BuiltinType const*getVoid(){
+    inline BuiltinType const*getVoid()const{
 	return void_;
     }
-    DeclType *addDeclType(unique_ptr<DeclType> t){
+    inline BuiltinType const*getUnit()const{
+	return unit_;
+    }
+    inline BuiltinType const*getI64()const{
+	return i64_;
+    }
+    inline BuiltinType const*getI32()const{
+	return i32_;
+    }
+    inline BuiltinType const*getI16()const{
+	return i16_;
+    }
+    inline BuiltinType const*getI8()const{
+	return i8_;
+    }
+    inline BuiltinType const*getBool()const{
+	return bool_;
+    }
+    inline BuiltinType const*getU64()const{
+	return u64_;
+    }
+    inline BuiltinType const*getU32()const{
+	return u32_;
+    }
+    inline BuiltinType const*getU16()const{
+	return u16_;
+    }
+    inline BuiltinType const*getU8()const{
+	return u8_;
+    }    
+    inline BuiltinType const*getF64()const{
+	return f64_;
+    }
+    inline BuiltinType const*getF32()const{
+	return f32_;
+    }
+    inline BuiltinType const*getF16()const{
+	return f16_;
+    }
+    DeclType const *const addDeclType(DeclType * const t){
         auto &name=t->name_;
         if(decl_type.count(name))
             return nullptr;
-        auto ret=t.get();
-        decl_type.insert({name,std::move(t)});
+        auto ret=t;
+        decl_type.insert({name,t});
         return ret;
     }
-    Type const *getType(std::string s)noexcept{
+    Type const * const getType(std::string s)noexcept{
         auto const iter=decl_type.find(s);
         if(iter!=decl_type.end()){
-            return iter->second.get();
+            return iter->second;
         }else{
             // assert(0);
             return nullptr;
@@ -153,21 +207,36 @@ class TypeManager{
 
     // }
 public:
-    TypeManager(){
-        decl_type.insert({"Int64",std::move(std::make_unique<BuiltinType>(TypeId::INT,64))});
-        decl_type.insert({"Int32",std::move(std::make_unique<BuiltinType>(TypeId::INT,32))});
-        decl_type.insert({"Int16",std::move(std::make_unique<BuiltinType>(TypeId::INT,16))});
-        decl_type.insert({"Int8",std::move(std::make_unique<BuiltinType>(TypeId::INT,8))});
-        decl_type.insert({"Bool",std::move(std::make_unique<BuiltinType>(TypeId::INT,1))});
-        decl_type.insert({"UInt64",std::move(std::make_unique<BuiltinType>(TypeId::UINT,64))});
-        decl_type.insert({"UInt32",std::move(std::make_unique<BuiltinType>(TypeId::UINT,32))});
-        decl_type.insert({"UInt16",std::move(std::make_unique<BuiltinType>(TypeId::UINT,16))});
-        decl_type.insert({"UInt8",std::move(std::make_unique<BuiltinType>(TypeId::UINT,8))});
-        decl_type.insert({"Float64",std::move(std::make_unique<BuiltinType>(TypeId::FLOAT,64))});
-        decl_type.insert({"Float32",std::move(std::make_unique<BuiltinType>(TypeId::FLOAT,32))});
-        decl_type.insert({"Float16",std::move(std::make_unique<BuiltinType>(TypeId::FLOAT,16))});
-        decl_type.insert({"Unit",std::move(std::make_unique<BuiltinType>(TypeId::UNIT,16))});
-	this->unit_=decl_type["Unit"].get();
+    TypeManager():i64_(new BuiltinType(TypeId::INT,64)),
+		  i32_(new BuiltinType(TypeId::INT,32)),
+		  i16_(new BuiltinType(TypeId::INT,16)),
+		  i8_(new BuiltinType(TypeId::INT,8)),
+		  bool_(new BuiltinType(TypeId::INT,1)),
+		  u64_(new BuiltinType(TypeId::UINT,64)),
+		  u32_(new BuiltinType(TypeId::UINT,32)),
+		  u16_(new BuiltinType(TypeId::UINT,16)),
+		  u8_(new BuiltinType(TypeId::UINT,8)),
+		  f64_(new BuiltinType(TypeId::FLOAT,64)),
+		  f32_(new BuiltinType(TypeId::FLOAT,32)),
+		  f16_(new BuiltinType(TypeId::FLOAT,16)),
+		  unit_(new BuiltinType (TypeId::UNIT,16)),
+		  void_(new BuiltinType(TypeId::VOID,0))
+    {
+        decl_type.insert({"Int64",i64_});
+        decl_type.insert({"Int32",i32_});
+        decl_type.insert({"Int16",i16_});
+        decl_type.insert({"Int8",i8_});
+        decl_type.insert({"Bool",bool_});
+        decl_type.insert({"UInt64",u64_});
+        decl_type.insert({"UInt32",u32_});
+        decl_type.insert({"UInt16",u16_});
+        decl_type.insert({"UInt8",u8_});
+        decl_type.insert({"Float64",f64_});
+        decl_type.insert({"Float32",f32_});
+        decl_type.insert({"Float16",f16_});
+        decl_type.insert({"Unit",unit_});
+	decl_type.insert({"void",void_});
+	// this->unit_=decl_type["Unit"];
     }
 };
 // struct Name  {

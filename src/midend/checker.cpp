@@ -7,8 +7,10 @@
 #include <cstddef>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stack>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using uToken=unique_ptr<Token>;
@@ -19,33 +21,54 @@ static type::Type const *tmp_type=nullptr;
 static type::Type const *target_type=nullptr;
 static type::Type const * bool_type=nullptr;
 static ::std::stack<cjir::Block*> blocks{};
-static ::std::map<cjir::Expr*,type::Type const *>expr_ty;
-static ::std::map<cjir::Decl*,type::Type const *>decl_ty;
+static ::std::map<cjir::Expr*,vector<cjir::Expr*>> parent_lits;
+static ::std::map<cjir::Decl*,type::Type const *>decl_tys;
 static ::std::vector<type::Type const*>cur_func_tys;
 static type::Type const *  INT_LIT_TY=nullptr;
 static type::Type const *  FLOAT_LIT_TY=nullptr;
+static std::set<cjir::Expr*> cur_func_lit;
 template  <typename target_ty>
 bool is_ty(cjir::Node  *const ptr){
     return static_cast<target_ty*>(ptr);
 }
 
-static type::Type const*func_ty_check(type::Type const* def=nullptr){
+#define is_lit_ty(ty) ((ty)==INT_LIT_TY||(ty)==FLOAT_LIT_TY)
+#define is_int_lit_ty(ty) ((ty)==INT_LIT_TY)
+#define is_float_lit_ty(ty) ((ty)==FLOAT_LIT_TY)
+#define is_int_ty(ty) ((ty)->type==type::TypeId::INT||(ty)->type==type::TypeId::UINT)
+#define is_float_ty(ty)  ((ty)->type==type::TypeId::FLOAT)
+// void lit_check(cjir::Expr* lit,type::Type const *const new_ty){
+//     std::vector<cjir::Expr*> lits{lit};
+//     while(!lits.empty()){
+// 	auto expr=lits.back();
+// 	expr->ty_=new_ty;
+// 	cur_func_lit.erase(expr);
+// 	lits.pop_back();
+// 	auto iter=parent_lits.find(lit);
+// 	if(iter!=parent_lits.end()){
+// 	    lits.insert(lits.end(),iter->second.begin(),iter->second.end());
+// 	    parent_lits.erase(iter);
+// 	}
+//     }
+    
+// }
+static type::Type const*func_ty_check(type::Type const* decl=nullptr){
     auto rm_lit_ty=[&](){
 	auto iter=cur_func_tys.begin();
 	while(iter!=cur_func_tys.end()){
 	    if(*iter==INT_LIT_TY||*iter==FLOAT_LIT_TY){
 		iter=cur_func_tys.erase(iter);
-	    }
+	    }else ++iter;
 	}
     };
     //defed
-    if(def!=nullptr){
+    if(decl!=nullptr){
 	rm_lit_ty();
 	for(auto i:cur_func_tys){
-	    if(i!=def)
+	    if(i!=decl)
 		return nullptr;
 	}
-	return def;
+	return decl;
     }else{
 	if(cur_func_tys.size()==1){
 	    return cur_func_tys.front();
@@ -76,6 +99,87 @@ static type::Type const*func_ty_check(type::Type const* def=nullptr){
 	return t;
     }
 }
+
+// type::Type const*Checker::var_type_check(type::Type const* var,type::Type const* val){
+//     assert(is_lit_ty(var)==false);
+//     if(val==INT_LIT_TY){
+// 	assert(is_int_ty(var));
+// 	if(is_int_lit_ty(var)||var==nullptr){
+// 	    return type_man->getI64();
+// 	}else{
+// 	    assert(is_int_ty(var));
+// 	    return var;
+// 	}
+// 	// val=var;
+//     }else if(val==FLOAT_LIT_TY){
+// 	assert(is_float_ty(var));
+// 	// val=var;
+// 	if(is_float_lit_ty(var)||var==nullptr){
+// 	    return type_man->getF64();
+// 	}else{
+// 	    assert(is_float_ty(var));
+// 	    return var;
+// 	}
+//     }
+//     if(var==nullptr){
+// 	return val;
+//     }
+//     assert(val==var);
+//     return var;
+// }
+// type::Type const*Checker::var_type_check(type::Type const* decl,type::Type const* l,type::Type const* r){
+//     assert(isvoid(l)==false||isvoid(r)==false);
+//     if(decl==nullptr){
+// 	if(is_int_lit_ty(l)&&is_int_lit_ty(r)){
+// 	    // return i64;
+// 	    this->type_man->getI64();
+// 	}
+// 	if(is_float_lit_ty(l)&&is_float_lit_ty(r)){
+// 	    // return  f64;
+// 	    this->type_man->getF64();	    
+// 	}
+// 	if(is_lit_ty(r)){
+// 	    std::swap(l,r);
+// 	}
+
+// 	if(is_int_lit_ty(l)){
+// 	    if(is_int_ty(r)){
+// 		return r;
+// 	    }
+// 	}
+// 	if(is_float_lit_ty(l)){
+// 	    if(is_float_ty(r)){
+// 		return r;
+// 	    }
+// 	}
+// 	if(l==r){
+// 	    return l;
+// 	}else{
+// 	    return nullptr;
+// 	}
+	
+//     }else{
+// 	if(l==INT_LIT_TY){
+// 	    assert(is_int_ty(decl));
+// 	    l=decl;
+// 	}
+// 	if(r==INT_LIT_TY){
+// 	    assert(is_int_ty(decl));
+// 	    r=decl;
+// 	}
+// 	if(l==FLOAT_LIT_TY){
+// 	    assert(is_float_ty(decl));
+// 	    l=decl;
+// 	}
+// 	if(r==FLOAT_LIT_TY){
+// 	    assert(is_float_ty(decl));
+// 	    r=decl;
+// 	}
+// 	assert(l==decl&&r==decl);
+//     }
+//     return decl;
+// }
+
 // void Checker::tranTy(cjir::Expr* l,cjir::Expr* r){
 //     if(l->ty==tye)
 // }
@@ -116,49 +220,49 @@ cjir::Bin::Binop astbin2hirbin(ast::BinOp op){
     }
 
 }
-type::Type const* Checker::get_binexpr_type(type::Type const *const lhs,type::Type const *const rhs){
-    if(lhs==rhs){
-	return lhs;
-    }
-    auto int_literltype=this->type_man->int_liter;
-    if(lhs==int_literltype){
-	if(rhs->type==type::TypeId::UINT||rhs->type==type::TypeId::INT){
-	    return rhs;
-	}
-    }
-    if(rhs==int_literltype){
-	if(lhs->type==type::TypeId::UINT||lhs->type==type::TypeId::INT){
-	    return lhs;
-	}
-    }
-    auto float_literltype=this->type_man->float_liter;
-    if(lhs==float_literltype){
-	if(rhs->type==type::TypeId::FLOAT){
-	    return rhs;
-	}
-    }
-    if(rhs==float_literltype){
-	if(lhs->type==type::TypeId::FLOAT){
-	    return lhs;
-	}
-    }
-    return nullptr;
-}
-bool Checker::auto_type_conversion(type::Type const *const type,type::Type const *const target_type){
-    if(type==target_type){
-	return true;
-    }
-    if(type==this->type_man->int_liter){
-	return target_type->type==type::TypeId::INT||target_type->type==type::TypeId::UINT;
-    }
-    if(type==this->type_man->float_liter){
-	return target_type->type==type::TypeId::FLOAT;
-    }
-    return false;
-}
+// type::Type const* Checker::bin_type_check(type::Type const *const lhs,type::Type const *const rhs){
+//     assert(isvoid(lhs)==false||isvoid(rhs)==false);
+//     if(lhs==rhs){
+// 	return lhs;
+//     }
+//     auto int_literltype=this->type_man->int_liter;
+//     if(lhs==int_literltype){
+// 	if(rhs->type==type::TypeId::UINT||rhs->type==type::TypeId::INT){
+// 	    return rhs;
+// 	}
+//     }
+//     if(rhs==int_literltype){
+// 	if(lhs->type==type::TypeId::UINT||lhs->type==type::TypeId::INT){
+// 	    return lhs;
+// 	}
+//     }
+//     auto float_literltype=this->type_man->float_liter;
+//     if(lhs==float_literltype){
+// 	if(rhs->type==type::TypeId::FLOAT){
+// 	    return rhs;
+// 	}
+//     }
+//     if(rhs==float_literltype){
+// 	if(lhs->type==type::TypeId::FLOAT){
+// 	    return lhs;
+// 	}
+//     }
+//     return nullptr;
+// }
+// bool Checker::auto_type_conversion(type::Type const *const type,type::Type const *const target_type){
+//     if(type==target_type){
+// 	return true;
+//     }
+//     if(type==this->type_man->int_liter){
+// 	return target_type->type==type::TypeId::INT||target_type->type==type::TypeId::UINT;
+//     }
+//     if(type==this->type_man->float_liter){
+// 	return target_type->type==type::TypeId::FLOAT;
+//     }
+//     return false;
+// }
 Checker::Checker():scopes({{{},ScopeType::GLOBAL}}),type_man(std::make_unique<type::TypeManager>()){
-    string s="Bool";
-    bool_type=this->type_man->getType(s);
+    bool_type=this->type_man->getBool();
 }
 void Checker::visit(ast::CompunitNode &node) {
     INT_LIT_TY=type_man->int_liter;
@@ -188,6 +292,7 @@ void Checker::visit(ast::FuncFParam &node) {
 }
 void Checker::visit(ast::FuncDef &node) {
     cur_func_tys.clear();
+    cur_func_lit.clear();
     scopes.push_back({{},ScopeType::FUNC});
     auto &defs=scopes.back().first;
     type::Type const*ret_ty=nullptr;
@@ -229,6 +334,7 @@ void Checker::visit(ast::FuncDef &node) {
 	ret_ty=func_ty_check(ret_ty);
 	assert(ret_ty!=0);
     }
+
     ufunc->ty_=ret_ty;
     scopes.pop_back();
     cur_func=nullptr;
@@ -246,7 +352,7 @@ void Checker::visit(ast::StructDeclStmt&node) {
     for(auto& def:node.members){
         t->members.push_back({def.first->name,type_man->getType(def.first->name),def.second});
     }
-    tmp_type=type_man->addDeclType( std::move(t));
+    tmp_type=type_man->addDeclType(t.release());
     if(0==tmp_type){
         std::cerr<<"Redefinition of declaration '"<<node.name<<'\''<<endl;
         assert(0);
@@ -274,7 +380,6 @@ void Checker::visit(ast::StructDeclStmt&node) {
 void Checker::visit(ast::ValDefStmt &node) {
     auto &tok=node.type;
     type::Type const * type=nullptr;
-    type::Type const * init_type=nullptr;
     if(tok!=nullptr){
         type=this->type_man->getType(tok->literal);
 	target_type=type;
@@ -282,30 +387,21 @@ void Checker::visit(ast::ValDefStmt &node) {
 
     if(node.init_expr!=nullptr){
 	node.init_expr->accept(*this);
-        init_type=tmp_type;
-	expr_ty.emplace(tmp_expr.get(),init_type);
     }
     if(tok==nullptr&&node.init_expr==nullptr){
 	assert(0&&"unknown type");
     }
-    // if(type!=nullptr&&init_type!=nullptr){
-    //     assert(type==init_type);
-    // }
-    //todo
-    if(type!=0&&init_type!=0)
-	assert(this->auto_type_conversion(init_type, type));
-    else{
-	type=type!=nullptr?type:init_type;
-    }
-    
+
+    tmp_expr->ty_=type;
+
     unique_ptr<cjir::VarDecl> decl;
     if(this->scopes.back().second==ScopeType::STRUCT){
 	decl=make_unique<cjir::MemVar>(type,node.name,unique_ptr<cjir::Expr> {std::move(tmp_expr)});
     }else{
 	decl=make_unique<cjir::VarDecl>(type,node.name,unique_ptr<cjir::Expr> {std::move(tmp_expr)});
     }
-    
-    decl_ty.emplace(decl.get(),type);
+    decl->check(*type_man);
+    decl_tys.emplace(decl.get(),type);
     tmp_expr=nullptr;
     tmp_type=nullptr;
     std::string na=decl->name_;
@@ -328,7 +424,7 @@ void Checker::visit(ast::AssignStmt &node) {tmp_type=nullptr;
     auto target_type=tmp_type;
     node.expr->accept(*this);
     auto expr=std::move(tmp_expr);
-    assert(auto_type_conversion(expr->ty, target_type));
+    // expr->ty_=var_type_check(target_type,expr->ty_);
     auto block=blocks.top();
     // unique_ptr<cjir::Assign> assign=make_unique<cjir::Assign>(l_val,epxr);
     // block->stmts_.push_back();
@@ -349,52 +445,31 @@ void Checker::visit(ast::AssignExpr &node) {
     node.rhs->accept(*this);
     auto r=std::move(tmp_expr);
     auto rtype=tmp_type;
-    if(ltype==type_man->int_liter||ltype==type_man->float_liter){
-        std::swap(ltype,rtype);
-    }
-    tmp_type=this->get_binexpr_type(ltype, rtype);
-    node.ty=tmp_type;
     assert(tmp_type!=nullptr);
     tmp_expr=make_unique<cjir::Assign>(astbin2hirbin(node.operat),std::move(l),std::move(r));
-    expr_ty.emplace(tmp_expr.get(),tmp_type);
+    tmp_type=nullptr;
 }
 void Checker::visit(ast::RelopExpr &node) {    
     tmp_type=bool_type;
     node.ty=bool_type;
     node.lhs->accept(*this);
-    auto ltype=tmp_type;
     auto l=std::move(tmp_expr);
     node.rhs->accept(*this);
     auto r=std::move(tmp_expr);
-    auto rtype=tmp_type;
-    if(ltype==type_man->int_liter||ltype==type_man->float_liter){
-        std::swap(ltype,rtype);
-    }
-    tmp_type=this->get_binexpr_type(ltype, rtype);
     node.ty=tmp_type;
     assert(tmp_type!=nullptr);
     tmp_expr=make_unique<cjir::Rel>(astbin2hirbin(node.operat),std::move(l),std::move(r));
-    expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
 void Checker::visit(ast::EqExpr &node) {
     // tmp_type=bool_type;
     // node.ty=bool_type;
     node.lhs->accept(*this);
-    auto ltype=tmp_type;
     auto l=std::move(tmp_expr);
     node.rhs->accept(*this);
     auto r=std::move(tmp_expr);
-    auto rtype=tmp_type;
-    if(ltype==type_man->int_liter||ltype==type_man->float_liter){
-        std::swap(ltype,rtype);
-    }
-    tmp_type=this->get_binexpr_type(ltype, rtype);
-    // node.ty=tmp_type;
-  
     assert(tmp_type!=nullptr);
     tmp_expr=make_unique<cjir::Rel>(astbin2hirbin(node.operat),std::move(l),std::move(r));
-    expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
 void Checker::visit(ast::AndExp &node) {
@@ -406,15 +481,12 @@ void Checker::visit(ast::AndExp &node) {
     node.rhs->accept(*this);
     auto r=std::move(tmp_expr);
     auto rtype=tmp_type;
-    if(ltype==type_man->int_liter||ltype==type_man->float_liter){
-        std::swap(ltype,rtype);
-    }
-    tmp_type=this->get_binexpr_type(ltype, rtype);
-    // node.ty=tmp_type;
+    assert(ltype==bool_type);
+    assert(rtype==bool_type);
+    tmp_type=bool_type;
   
     assert(tmp_type!=nullptr);
     tmp_expr=make_unique<cjir::And>(cjir::Bin::LAND,std::move(l),std::move(r));
-    expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
 void Checker::visit(ast::ORExp &node) {
@@ -426,32 +498,31 @@ void Checker::visit(ast::ORExp &node) {
     node.rhs->accept(*this);
     auto r=std::move(tmp_expr);
     auto rtype=tmp_type;
-    if(ltype==type_man->int_liter||ltype==type_man->float_liter){
-        std::swap(ltype,rtype);
-    }
-    tmp_type=this->get_binexpr_type(ltype, rtype);
+    assert(ltype==bool_type);
+    assert(rtype==bool_type);
+    tmp_type=bool_type;
     // node.ty=tmp_type;
-  
+    
     assert(tmp_type!=nullptr);
     tmp_expr=make_unique<cjir::Or>(cjir::Bin::LOR,std::move(l),std::move(r));
-    expr_ty.emplace(tmp_expr.get(),bool_type);
     tmp_type=bool_type;
 }
 void Checker::visit(ast::BinopExpr &node) {
     node.lhs->accept(*this);
-    auto ltype=tmp_type;
     auto l=std::move(tmp_expr);
     node.rhs->accept(*this);
     auto r=std::move(tmp_expr);
-    auto rtype=tmp_type;
-    if(ltype==type_man->int_liter||ltype==type_man->float_liter){
-        std::swap(ltype,rtype);
-    }
-    tmp_type=this->get_binexpr_type(ltype, rtype);
-    node.ty=tmp_type;
+    // if(ltype==type_man->int_liter||ltype==type_man->float_liter){
+    //     std::swap(ltype,rtype);
+    // }
+    // node.ty=tmp_type;
     assert(tmp_type!=nullptr);
-    tmp_expr=make_unique<cjir::Bin>(astbin2hirbin(node.operat),std::move(l),std::move(r));
-    expr_ty.emplace(tmp_expr.get(),tmp_type);
+    auto bin=make_unique<cjir::Bin>(astbin2hirbin(node.operat),std::move(l),std::move(r));
+    bin->ty_=tmp_type;
+    if(is_lit_ty(tmp_type)){
+	parent_lits.insert({bin.get(),{bin->lhs_.get(),bin->rhs_.get()}});
+    }
+    tmp_expr=std::move(bin);
 }
 void Checker::visit(ast::LvalExpr &node) {
     tmp_type=findDef(node.name);
@@ -460,7 +531,6 @@ void Checker::visit(ast::LvalExpr &node) {
 	assert(false);
     }
     tmp_expr=make_unique<cjir::Lval>(tmp_type,node.name);
-    expr_ty.emplace(tmp_expr.get(),tmp_type);
 }
 void Checker::visit(ast::Literal &node) {
     if(node.type>=ast::LitType::INT&&node.type<=ast::LitType::INT_HEX){
@@ -468,13 +538,13 @@ void Checker::visit(ast::Literal &node) {
     }else if(node.type==ast::LitType::FLOAT){
         tmp_type=type_man->float_liter;
     }else if(node.type==ast::LitType::BOOL){
-        tmp_type=type_man->getType("Bool");
+        tmp_type=type_man->getBool();
     }else{
         assert(0);
     }
     tmp_expr=make_unique<cjir::Lit>(node.literal->literal,tmp_type);
+    cur_func_lit.insert(tmp_expr.get());
     node.ty=tmp_type;
-    expr_ty.emplace(tmp_expr.get(),tmp_type);
 }
 // void Checker::visit(ast::IntConst &node) {assert(0);}
 void Checker::visit(ast::InitializerExpr &node) {assert(0);}
@@ -505,6 +575,7 @@ void Checker::visit(ast::IfExpr &node) {
     }
   
     unique_ptr<cjir::Expr> elsee=nullptr;
+    unique_ptr<cjir::If> _if;
     if(node.else_!=nullptr){
         scopes.push_back({{},ScopeType::IF});
 	node.else_->accept(*this);
@@ -512,13 +583,19 @@ void Checker::visit(ast::IfExpr &node) {
 	{
 	    assert(is_ty<cjir::Block>(elsee.get())||is_ty<cjir::If>(elsee.get()));
 	}
-	tmp_type=get_binexpr_type(then->ty,elsee->ty);
-	tmp_expr=make_unique<cjir::If>(tmp_type, std::move(cond),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(then.release())),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(elsee.release())));
+	// tmp_type=bin_type_check(then->ty_,elsee->ty_);
+	_if=make_unique<cjir::If>(tmp_type, std::move(cond),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(then.release())),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(elsee.release())));
       
     }else{
-	tmp_type=then->ty;
-	tmp_expr=make_unique<cjir::If>(tmp_type, std::move(cond),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(then.release())),nullptr);
+	tmp_type=then->ty_;
+	_if=make_unique<cjir::If>(tmp_type, std::move(cond),unique_ptr<cjir::Block>(static_cast<cjir::Block*>(then.release())),nullptr);
     }
+    if(is_lit_ty(_if->ty_)){
+	auto iter=parent_lits.insert({_if.get(),{_if->then_.get()}}).first;
+	if(_if->else_)
+	    iter->second.push_back(_if->then_.get());
+    }
+    tmp_expr=std::move(_if);
     
 }
 void Checker::visit(ast::WhileExpr &node) {
@@ -530,7 +607,7 @@ void Checker::visit(ast::WhileExpr &node) {
     {
 	assert(is_ty<cjir::Block>(lo.get()));
     }
-    tmp_type=this->type_man->unit_;
+    tmp_type=this->type_man->getUnit();
     auto loop=unique_ptr<cjir::Block>(static_cast<cjir::Block*>(lo.release()));
     if(loop->expr!=nullptr){
 	loop->stmts_.emplace_back(make_unique<cjir::ExprStmt>(std::move(loop->expr)));
@@ -548,11 +625,16 @@ void Checker::visit(ast::BlockExpr &node) {
     }
     if(node.expr_!=nullptr){
 	node.expr_->accept(*this);
-	block->ty=tmp_type;
+	block->ty_=tmp_type;
 	block->expr=std::move(tmp_expr);
     }else{
 	tmp_type=nullptr;
     }
+
+    if(is_lit_ty(block->ty_)){
+	parent_lits.insert({block.get(),{block->expr.get()}});
+    }
+
     tmp_expr=std::move(block);
 }
 // void Checker::visit(ast::IfStmt &node) {
@@ -569,13 +651,24 @@ void Checker::visit(ast::BlockExpr &node) {
 void Checker::visit(ast::WhileStmt &node) {assert(0);}
 void Checker::visit(ast::CallExpr &node) {assert(0);}
 void Checker::visit(ast::RetStmt &node) {
-    if(cur_func==nullptr){
-	assert(false);
-    }
+    assert(cur_func!=nullptr);
     node.expr->accept(*this);
     type::Type const * type=tmp_type;
     // auto target_type=this->findDef(cur_func->name_);
     // assert(auto_type_conversion(type,target_type ));
+
+    if(tmp_expr->ty_==INT_LIT_TY){
+	if(cur_func->ty_!=nullptr){
+	    assert(is_int_ty(cur_func->ty_));
+	}
+    }else if(tmp_expr->ty_==FLOAT_LIT_TY){
+	if(cur_func->ty_!=nullptr){
+	    assert(is_float_ty(cur_func->ty_));
+	}
+    }else{
+	cur_func_tys.push_back(tmp_expr->ty_);
+    }
+    
     tmp_stmt=make_unique<cjir::RetStmt>(std::move(tmp_expr));
 }
 void Checker::visit(ast::ContinueStmt &node) {

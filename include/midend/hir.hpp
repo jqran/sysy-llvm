@@ -16,12 +16,13 @@ struct Stmt:public Node{
     virtual void accept(HirVisitor&visitor)=0;
 };
 struct Expr:public Node{
-    type::Type const * ty;
-    Expr():ty(nullptr){}
-    Expr(type::Type const*ty):ty(ty){}
+    type::Type const * ty_;
+    Expr():ty_(nullptr){}
+    Expr(type::Type const*ty):ty_(ty){}
     ~Expr()=default;
     virtual void print(int lv)=0;
     virtual void accept(HirVisitor&visitor)=0;
+    virtual void check(type::TypeManager& tyman,type::Type const* ty)=0;
 };
 struct ExprStmt:public Stmt{
     unique_ptr<Expr>expr_;
@@ -34,6 +35,7 @@ struct Lval:public Expr{
     Lval(type::Type const* ty,string id):Expr(ty),id_(id){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 struct Unary:public Expr{
     enum class UnOp{
@@ -45,6 +47,7 @@ struct Unary:public Expr{
     Unary(UnOp op,unique_ptr<Expr> rhs):op(op),rhs_(std::move(rhs)),Expr(){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 struct Bin:public Expr{
     enum Binop{
@@ -68,21 +71,25 @@ struct Bin:public Expr{
     Bin(Binop op,unique_ptr<Expr> lhs,unique_ptr<Expr> rhs):op(op),lhs_(std::move(lhs)),rhs_(std::move(rhs)),Expr(){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 struct Rel:public Bin{
     using Bin::Bin;
     using Bin::print;
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };    
 struct And:public Bin{
     using Bin::Bin;
     using Bin::print;
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 struct Or:public Bin{
     using Bin::Bin;
     using Bin::print;
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 
 struct Block:public Expr{
@@ -93,6 +100,7 @@ struct Block:public Expr{
     Block(ScopeType bty):Expr(),bty_(bty){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 struct If:public Expr{
     unique_ptr<Expr> cond_;
@@ -101,6 +109,7 @@ struct If:public Expr{
     If(type::Type const*ty,unique_ptr<Expr>cond,unique_ptr<Block>then,unique_ptr<Block>el=nullptr):Expr(ty),cond_(std::move(cond)),then_(std::move(then)),else_(std::move(el)){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 struct While:public Expr{
     unique_ptr<Expr> cond_;
@@ -109,6 +118,7 @@ struct While:public Expr{
     While(type::Type const*ty,unique_ptr<Expr>cond,unique_ptr<Block>loop):Expr(ty),cond_(std::move(cond)),loop_(std::move(loop)){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 // enum CJINSID:int {
 
@@ -130,6 +140,7 @@ struct Lit:public Expr{
     Lit(string lit,type::Type const *const ty):Expr(ty),lit_(lit){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 // struct BinExpr:public Expr{
 //   enum  binop:uint{
@@ -143,6 +154,7 @@ struct Assign:public Bin{
     using Bin::Bin;
     using Bin::print;
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
 struct Decl:public Stmt{
     string name_;
@@ -150,6 +162,7 @@ struct Decl:public Stmt{
     Decl(type::Type const * const ty,string name):Stmt(),ty_(ty),name_(name){}
     virtual void print(int lv)=0;
     virtual void accept(HirVisitor&visitor)=0;
+    virtual void check(type::TypeManager& tyman)=0;
 };
 struct VarDecl:public Decl{
     unique_ptr<Expr> init_;
@@ -157,6 +170,7 @@ struct VarDecl:public Decl{
     VarDecl(type::Type const * const ty,string name,unique_ptr<Expr> init):Decl(ty,name),init_(std::move(init)){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman);    
 };
 // struct RetExpr:public Expr{
 //     unique_ptr<Expr> expr_;
@@ -178,18 +192,21 @@ struct FuncDecl:public Decl{
     FuncDecl(type::Type const*const ret_ty,std::string name):Decl(ret_ty,name),block_(std::make_unique<Block>(ret_ty,ScopeType::FUNC)){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman);
 };
 struct StructDecl;
 struct MemVar:public VarDecl{
     StructDecl* parent_;
     MemVar(type::Type const * const ty,string name,unique_ptr<Expr> init):VarDecl(ty ,name,std::move(init)){}
     using VarDecl::print;
+    using VarDecl::check;
     virtual void accept(HirVisitor&visitor);
 };
 struct MemFunc:public FuncDecl{
     StructDecl* parent_;
     using FuncDecl::FuncDecl;
     using FuncDecl::print;
+    using FuncDecl::check;
     virtual void accept(HirVisitor&visitor);
 };
 struct StructDecl:public Decl{
@@ -199,6 +216,7 @@ struct StructDecl:public Decl{
     // VarDecl(type::Type const * const ty,string name,unique_ptr<Expr> init):Decl(ty,name),init_(std::move(init)){}
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman);
 };
 
 // struct Struct:public Expr{

@@ -1,7 +1,6 @@
 #include "frontend/node.hpp"
 #include "frontend/type.hpp"
 #include "midend/hir.hpp"
-#include <array>
 #include <cstddef>
 #include <vector>
 // struct Scope{
@@ -16,8 +15,11 @@
 class Checker:public ast::ASTVisitor{
     std::vector<std::pair<std::map<std::string,type::Type const*>,ScopeType>> scopes;
     unique_ptr<type::TypeManager> type_man;
-    std::array<type::BuiltinType*, 10> builtin;
+    // std::array<type::BuiltinType*, 10> builtin;
     cjir::Module*module_=nullptr;
+    // type::Type const*var_type_check(type::Type const* var,type::Type const* val);
+    // type::Type const*var_type_check(type::Type const* decl,type::Type const* l,type::Type const* r);
+    inline bool isvoid(type::Type const* const ty){return ty==this->type_man->getVoid();}
     virtual void visit(ast::CompunitNode &node) ;
     virtual void visit(ast::FuncFParam &node) ;
     virtual void visit(ast::FuncDef &node) ;
@@ -64,6 +66,7 @@ public:
 	return this->module_;
     }
 private:
-    type::Type const * get_binexpr_type(type::Type const *const lhs,type::Type const *const rhs);
+    // type::Type const * bin_type_check(type::Type const *const lhs,type::Type const *const rhs);
+    // type::Type const* lit_size(type::Type const * &l,type::Type const * &r);
     bool auto_type_conversion(type::Type const *const type,type::Type const *const target_type);
 };

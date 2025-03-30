@@ -1,4 +1,5 @@
 #include "midend/hir.hpp"
+#include "frontend/type.hpp"
 #include <cassert>
 string binopTOStr(cjir::Bin::Binop op){
     switch (op) {
@@ -34,7 +35,6 @@ string binopTOStr(cjir::Bin::Binop op){
         exit(10);
     }
 }
-
 void LevelPrint(int cur_level,string name){
     for(int i = 0 ; i < cur_level; ++i) cout << "|  ";
     cout << ">-->"<< name;
@@ -213,3 +213,104 @@ void cjir::Module::accept(cjir::HirVisitor& visitor){
 }
 
 
+#define is_lit_ty(ty) ((ty)==tyman.int_liter||(ty)==tyman.float_liter)
+#define is_int_lit_ty(ty) ((ty)==tyman.int_liter)
+#define is_float_lit_ty(ty) ((ty)==tyman.float_liter)
+#define is_int_ty(ty) ((ty)->type==type::TypeId::INT||(ty)->type==type::TypeId::UINT)
+#define is_float_ty(ty)  ((ty)->type==type::TypeId::FLOAT)
+
+void cjir::Lval::check(type::TypeManager& tyman,type::Type const *ty){
+    assert(ty==this->ty_);
+}
+void cjir::Unary::check(type::TypeManager& tyman,type::Type const *ty){
+    assert(ty==this->ty_);
+}
+void cjir::Bin::check(type::TypeManager& tyman,type::Type const *ty){
+    if(is_lit_ty(this->ty_)){
+	assert(ty->getSize()!=0);
+	if(ty->type==this->ty_->type){
+	    this->ty_=ty;
+	}
+    }else{
+	assert(ty==this->ty_);
+    }
+    this->lhs_->check(tyman, ty);
+    this->rhs_->check(tyman, ty);
+}
+void cjir::Rel::check(type::TypeManager& tyman,type::Type const *ty){
+    auto _bool=tyman.getBool();
+    assert(ty==_bool);
+    assert(this->ty_==_bool);
+    if(is_lit_ty(lhs_->ty_)&&is_lit_ty(rhs_->ty_)){
+    }else{
+	if(is_lit_ty(lhs_->ty_)){
+	}
+
+    }
+}
+void cjir::Or::check(type::TypeManager& tyman,type::Type const *ty){
+    auto _bool=tyman.getBool();
+    assert(ty==_bool);
+    assert(this->ty_==_bool);
+    this->lhs_->check(tyman, ty);
+    this->rhs_->check(tyman, ty);
+}
+void cjir::And::check(type::TypeManager& tyman,type::Type const *ty){
+    auto _bool=tyman.getBool();
+    assert(ty==_bool);
+    assert(this->ty_==_bool);
+    this->lhs_->check(tyman, ty);
+    this->rhs_->check(tyman, ty);
+
+}
+void cjir::Assign::check(type::TypeManager& tyman,type::Type const *ty){
+    if(is_lit_ty(lhs_->ty_)){
+	assert(this->rhs_->ty_->type==this->ty_->type);
+	this->rhs_->ty_=ty;
+    }else{
+	assert(this->rhs_->ty_==this->ty_);
+    }
+    this->rhs_->check(tyman, ty);
+}
+void cjir::Block::check(type::TypeManager& tyman,type::Type const *ty){
+    assert(ty==this->ty_);
+    this->expr->check(tyman,ty);
+}
+void cjir::If::check(type::TypeManager& tyman,type::Type const *ty){
+    assert(ty==this->ty_);
+    this->cond_->check(tyman, tyman.getBool());
+    this->then_->check(tyman, ty);
+    this->else_->check(tyman, ty);
+
+}
+void cjir::While::check(type::TypeManager& tyman,type::Type const *ty){
+    assert(ty==this->ty_);
+    assert(ty==tyman.getUnit());
+}
+void cjir::Lit::check(type::TypeManager& tyman,type::Type const *ty){
+    assert(ty->type==this->ty_->type);
+    this->ty_=ty;
+}
+void cjir::VarDecl::check(type::TypeManager& tyman){
+    if(this->ty_==nullptr){
+	if(is_int_lit_ty(this->init_->ty_)){
+	    this->ty_=tyman.getI64();
+	}else if(is_float_lit_ty(this->init_->ty_)){
+	    this->ty_=tyman.getF64();
+	}else{
+	    this->ty_=init_->ty_;
+	}
+	init_->check(tyman,this->ty_);
+    }else{
+	if(is_lit_ty(this->init_->ty_)){
+	    assert(this->ty_->type==init_->ty_->type);
+	}else{
+	    assert(this->ty_=init_->ty_);
+	}
+	init_->check(tyman,this->ty_);
+    }
+}
+void cjir::FuncDecl::check(type::TypeManager& tyman){
+}
+void cjir::StructDecl::check(type::TypeManager& tyman){
+}

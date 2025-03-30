@@ -384,8 +384,8 @@ void Builder::visit(cjir::VarDecl &node){
     auto allo=this->irbuilder_->CreateAlloca(tmp_type);
     this->val_table.insert({node.name_,IRInfo{allo,node.ty_,tmp_type}});
     if(node.init_){
-	if(node.init_->ty==type_man->int_liter||node.init_->ty==type_man->float_liter){
-	    node.init_->ty=node.ty_;
+	if(node.init_->ty_==type_man->int_liter||node.init_->ty_==type_man->float_liter){
+	    node.init_->ty_=node.ty_;
 	}
 	node.init_->accept(*this);
     }
@@ -397,8 +397,8 @@ void Builder::visit(cjir::ExprStmt &node){
 void Builder::visit(cjir::Assign &node){
     // std::cerr<<"assign                    assign"<<endl;
     // assert(0);
-    if(node.rhs_->ty==type_man->int_liter||node.rhs_->ty==type_man->float_liter){
-	node.rhs_->ty=node.lhs_->ty;
+    if(node.rhs_->ty_==type_man->int_liter||node.rhs_->ty_==type_man->float_liter){
+	node.rhs_->ty_=node.lhs_->ty_;
     }
 
     node.rhs_->accept(*this);
@@ -425,7 +425,7 @@ void Builder::visit(cjir::Rel &node){
     auto r=tmp_val;
     // llvm::Instruction::BinaryOps op;
     // this->irbuilder_->CreateBinOp(llvm::Instruction::BinaryOps Opc, Value *LHS, Value *RHS)
-    tmp_val=this->irbuilder_->CreateCmp(hir_cmpop2llvm_cmpop(node.op,node.lhs_->ty->type), l, r);
+    tmp_val=this->irbuilder_->CreateCmp(hir_cmpop2llvm_cmpop(node.op,node.lhs_->ty_->type), l, r);
 }
 
 void Builder::visit(cjir::Or &node){
@@ -471,10 +471,10 @@ void Builder::visit(cjir::Lval &node){
 	tmp_val=info.val;
 }
 void Builder::visit(cjir::Lit &node){
-    assert(node.ty->getSize()!=0);
-    if(node.ty->type==type::TypeId::INT){
+    assert(node.ty_->getSize()!=0);
+    if(node.ty_->type==type::TypeId::INT){
 	int v;
-	if(node.ty->getSize()==1){
+	if(node.ty_->getSize()==1){
 	    if(node.lit_=="true"){
 		v=1;
 	    }else{
@@ -483,13 +483,13 @@ void Builder::visit(cjir::Lit &node){
 	}else
 	    v=std::stoll(node.lit_);
 
-	tmp_val=llvm::ConstantInt::getSigned(irbuilder_->getIntNTy(node.ty->getSize()), v);
-    }else if(node.ty->type==type::TypeId::UINT){
+	tmp_val=llvm::ConstantInt::getSigned(irbuilder_->getIntNTy(node.ty_->getSize()), v);
+    }else if(node.ty_->type==type::TypeId::UINT){
 	uint a=std::stoull(node.lit_);
-	tmp_val=llvm::ConstantInt::get(irbuilder_->getIntNTy(node.ty->getSize()), a);
-    }else if(node.ty->type==type::TypeId::FLOAT){
+	tmp_val=llvm::ConstantInt::get(irbuilder_->getIntNTy(node.ty_->getSize()), a);
+    }else if(node.ty_->type==type::TypeId::FLOAT){
 	auto a=std::stod(node.lit_);
-	tmp_val=llvm::ConstantFP::get(getType(node.ty), a);	
+	tmp_val=llvm::ConstantFP::get(getType(node.ty_), a);	
     }else{
 	assert(0);
     }

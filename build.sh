@@ -2,5 +2,10 @@
 if [ ! -d build ];then
     mkdir build
 fi
-mkdir build
-cmake  -Bbuild -H.
+
+if [ ! -f build/Makefile ];then
+    cmake  -Bbuild -H.
+fi
+cd build
+make
+cd ..
