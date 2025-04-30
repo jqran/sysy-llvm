@@ -9,21 +9,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED YES)
 SET(CMAKE_BUILD_TYPE "Debug" )
 
 # Include directories
-include_directories(include)
+include_directories(include /usr/include/antlr4-runtime antlr)
 
 # Link directories
 link_directories(/usr/lib)
 
 # Source files
-file(GLOB_RECURSE SOURCES "src/test/testast.cpp" "src/frontend/*.cpp" "src/midend/checker.cpp" "src/midend/hir.cpp" "src/midend/builder.cpp")
+file(GLOB_RECURSE SOURCES "src/test/testast.cpp" "src/midend/type.cpp" "src/midend/AntlrChecker.cpp" "src/midend/hir.cpp" "src/midend/builder.cpp" "antlr/*.cpp")
 
 # Create the executable
 add_executable(testllvm ${SOURCES})
 
 # Link against the LLVM library
-target_link_libraries(testllvm PRIVATE LLVM)
+target_link_libraries(testllvm PRIVATE "/usr/lib/llvm-19/lib/libLLVM.so")
 
-#target_link_libraries(testllvm PRIVATE /usr/lib/libLLVM.so)
+target_link_libraries(testllvm PRIVATE /usr/lib/x86_64-linux-gnu/libantlr4-runtime.a )
 
 # Set optimization level
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0")

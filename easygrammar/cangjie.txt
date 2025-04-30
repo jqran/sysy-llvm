@@ -1,0 +1,132 @@
+<identifier> ::= Identifier
+
+<translationUnit> ::=[ translationUnit ] (( variableDeclaration | functionDefinition ))
+
+<end> ::= NL | SEMI
+
+<topLevelObject> ::= <functionDefinition> | <variableDeclaration>
+
+<functionDefinition> ::= FUNC
+                        <identifier>
+                        <functionParameters>
+                        [  COLON  <type> ]
+                        [  <block> ]
+
+<functionParameters> ::=  LPAREN  [ <namedParameterList>  ] RPAREN
+
+<namedParameterList> ::= ( <namedParameter> | <defaultParameter> )
+                         { COMMA ( <namedParameter> | <defaultParameter> ) }
+
+<namedParameter> ::= <identifier>  NOT  COLON  <type>
+
+<defaultParameter> ::= <identifier>  NOT  COLON  <type>
+                        ASSIGN <expression>
+
+<variableDeclaration> ::=  ( LET | VAR | CONST )  <identifier>
+                          ( [ COLON  <type> ] ASSIGN  <expression>
+                          |COLON <type> )
+
+<mainDefinition> ::= MAIN
+                       <functionParameters>
+                      [  COLON  <type> ]
+                      <block>
+
+<type> ::= <charLangTypes>
+<charLangTypes> ::= <numericTypes>
+                   | BOOLEAN
+                   | UNIT
+<numericTypes> ::= INT8
+                 | INT16
+                 | INT32
+                 | INT64
+                 | INTNATIVE
+                 | UINT8
+                 | UINT16
+                 | UINT32
+                 | UINT64
+                 | UINTNATIVE
+                 | FLOAT16
+                 | FLOAT32
+                 | FLOAT64
+<expression> ::= <assignmentExpression>
+<assignmentExpression> ::= <leftValueExpression> assignmentOperator  <logicDisjunctionExpression>
+                           | <logicDisjunctionExpression>
+<leftValueExpression> ::= identifier
+<logicDisjunctionExpression> ::= <logicConjunctionExpression> {  OR  <logicConjunctionExpression> }
+<logicConjunctionExpression> ::= <bitwiseDisjunctionExpression> {  AND  <bitwiseDisjunctionExpression> }
+<bitwiseDisjunctionExpression> ::= <bitwiseXorExpression> {  BITOR  <bitwiseXorExpression> }
+<bitwiseXorExpression> ::= <bitwiseConjunctionExpression> {  BITXOR  <bitwiseConjunctionExpression> }
+<bitwiseConjunctionExpression> ::= <equalityComparisonExpression> {  BITAND  <equalityComparisonExpression> }
+<equalityComparisonExpression> ::= <comparisonOrTypeExpression> [ <equalityOperator> <comparisonOrTypeExpression> ]
+<comparisonOrTypeExpression> ::= <shiftingExpression> [ <comparisonOperator> <shiftingExpression> ]
+<shiftingExpression> ::= <additiveExpression> {  <shiftingOperator>  <additiveExpression> }
+<additiveExpression> ::= <multiplicativeExpression> {  <additiveOperator>  <multiplicativeExpression> }
+<multiplicativeExpression> ::= <exponentExpression> {  <multiplicativeOperator>  <exponentExpression> }
+<exponentExpression> ::= <prefixUnaryExpression> {  <exponentOperator>  <prefixUnaryExpression> }
+<prefixUnaryExpression> ::= { <prefixUnaryOperator> } <incAndDecExpression>
+<incAndDecExpression> ::= <atomicExpression> [ ( INC | DEC ) ]
+<postfixExpression> ::= <atomicExpression>
+                       | <postfixExpression> <callSuffix>
+<callSuffix> ::= LPAREN  [ <valueArgument> {  COMMA  <valueArgument> } ]  RPAREN
+<valueArgument> ::= identifier COLON <expression>
+                  | <expression>
+<atomicExpression> ::= <literalConstant>
+                      | identifier
+                      | <ifExpression>
+                      | <loopExpression>
+                      | <jumpExpression>
+                      | <numericTypeConvExpr>
+<literalConstant> ::= IntegerLiteral
+                     | FloatLiteral
+                     | <booleanLiteral>
+<booleanLiteral> ::= TRUE
+                    | FALSE
+<ifExpression> ::= IF LPAREN <expression> RPAREN <block>
+                   [ ELSE ( <ifExpression> | <block> ) ]
+<loopExpression> ::= <whileExpression>
+                    | <doWhileExpression>
+<whileExpression> ::= WHILE LPAREN <expression> RPAREN <block>
+<doWhileExpression> ::= DO <block> WHILE LPAREN <expression> RPAREN
+<jumpExpression> ::= RETURN [ <expression> ]
+                     | CONTINUE
+                     | BREAK
+<numericTypeConvExpr> ::= <numericTypes> LPAREN <expression> RPAREN
+<block> ::= LCURL <expressionOrDeclarations> RCURL
+<expressionOrDeclarations> ::= { end }
+                                 { <expressionOrDeclarationAndEnd> { end } } [ <expressionOrDeclaration> ]
+<expressionOrDeclarationAndEnd> ::= ( <expression> | <varOrfuncDeclaration> ) end
+<expressionOrDeclaration> ::= <expression>
+                            | <varOrfuncDeclaration>
+<varOrfuncDeclaration> ::= <functionDefinition>
+                          | <variableDeclaration>
+<assignmentOperator> ::= ASSIGN
+                       | ADD_ASSIGN
+                       | SUB_ASSIGN
+                       | EXP_ASSIGN
+                       | MUL_ASSIGN
+                       | DIV_ASSIGN
+                       | MOD_ASSIGN
+                       | AND_ASSIGN
+                       | OR_ASSIGN
+                       | BITAND_ASSIGN
+                       | BITOR_ASSIGN
+                       | BITXOR_ASSIGN
+                       | LSHIFT_ASSIGN
+                       | RSHIFT_ASSIGN
+<equalityOperator> ::= NOTEQUAL
+                     | EQUAL
+
+<comparisonOperator> ::= LT
+                       | GT
+                       | LE
+                       | GE
+<shiftingOperator> ::= LSHIFT
+                     | RSHIFT
+<additiveOperator> ::= ADD
+                     | SUB
+<exponentOperator> ::= EXP
+<multiplicativeOperator> ::= MUL
+                           | DIV
+                           | MOD
+<prefixUnaryOperator> ::= SUB
+                        | NOT

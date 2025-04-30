@@ -1,7 +1,7 @@
 #ifndef SCOPE_HPP
 #define SCOPE_HPP
 
-#include "frontend/type.hpp"
+#include "midend/type.hpp"
 #include <cassert>
 #include <iostream>
 #include <llvm/IR/Type.h>
@@ -13,13 +13,22 @@
 #include <vector>
 
 // template <typename  T>
+enum class DefTy {
+    CONST,
+    LET,
+    FUNC_PARAM,
+    VAR,
+};
 struct IRInfo{
     // std::string id;
+    DefTy defty;
     llvm::Value* val;
     type::Type const *ty;
-    llvm::Type *contain_ty;
+    llvm::Type *llvm_ty;
+    bool ismut(){return this->defty==DefTy::VAR;}
 };
-class IRScope{
+
+struct IRScope{
     IRScope* parent_;
     std::vector<std::unique_ptr<IRScope>> children_;
     std::unordered_map<std::string,IRInfo> table_;
@@ -34,7 +43,6 @@ public:
     IRScope*getParent(){
         return this->parent_;
     }
-    IRScope():parent_(nullptr){}
     void insert(std::pair<std::string,IRInfo>p){
         table_.insert(p);
     }
@@ -46,16 +54,15 @@ public:
         if(parent_!=nullptr)
             return parent_->findValue(name);
         else {
-	    std::cerr<<name<<endl;
+	    std::cerr<<name<<std::endl;
 	    assert(0);
             // return nullptr;
 
 	}
     }
-    void enter(){
-        std::unique_ptr<IRScope> child=std::make_unique<IRScope>(this);
-        children_.push_back(std::move(child));
-    }
+    // void enter(){
+
+    // }
     // void exit(){
     //     if(parent_!=nullptr)
     //         this=parent_;
@@ -63,5 +70,24 @@ public:
     //         exit(200);
     // }
 };
-
+struct TableManager{
+    std::unique_ptr<IRScope> const global_;
+    IRScope* curr_;
+    TableManager():global_(std::make_unique<IRScope>(nullptr)),curr_(global_.get()){}
+    void enter(){
+        std::unique_ptr<IRScope> child=std::make_unique<IRScope>(curr_);
+        auto temp=child.get();
+        curr_->children_.push_back(std::move(child));
+        curr_=temp;
+    }
+    void exit(){
+        curr_=curr_->getParent();
+    }
+    IRInfo findValue(string id){
+        return curr_->findValue(id);
+    }
+    void insert(std::pair<std::string,IRInfo>p){
+        this->curr_->insert(p);
+    }
+};
 #endif
