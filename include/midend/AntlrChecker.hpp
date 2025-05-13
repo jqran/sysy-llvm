@@ -68,6 +68,7 @@ public:
         return std::move(type_man);
     }
 private:
+    unique_ptr<chir::Selector> makeSelector(unique_ptr<chir::Expr> l,string id,bool isleft);
     chir::FuncDecl* findNearestFunc(std::vector<unique_ptr<chir::Expr>> const&args,vector<unique_ptr<chir::FuncDecl>>const&funcs);
 
     ScopeManager scope_man_;

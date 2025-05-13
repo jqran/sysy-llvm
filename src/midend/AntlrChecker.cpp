@@ -117,6 +117,18 @@ std::unique_ptr<To> unique_dynamic_cast(std::unique_ptr<From>& from) {
     }
     return nullptr;
 }
+unique_ptr<chir::Selector> CangjieChecker::makeSelector(unique_ptr<chir::Expr> l,string id,bool isleft){
+    auto lty=this->find(l.get());  
+    if(lty->isArray()){
+        assert(id=="size");
+        return make_unique<chir::Selector>(type_man->getI64(),lty,std::move(l),id,isleft);
+    }else if(lty->isStruct()){
+        auto sty=(type::StructType const* )(lty);
+        return make_unique<chir::Selector>(sty->struct_->find(id)->ty_,sty,std::move(l),id,isleft);
+    }else{
+        throw  std::logic_error("selector unknown type");
+    }
+}
 type::Type const* CangjieChecker::find(chir::Expr* expr){
     if(auto lval=dynamic_cast<chir::Lval*>(expr)){
         return findDecl(lval->id_);
@@ -191,6 +203,7 @@ antlrcpp::Any CangjieChecker::visitIdentifier(CangjieParser::IdentifierContext *
 
 antlrcpp::Any CangjieChecker::visitTranslationUnit(CangjieParser::TranslationUnitContext *context) {
     this->type_man->module_=this->module_;
+    this->scope_man_.insert({"putchar",type_man->getFuncTy(type_man->getI32(), {type_man->getI32()})});
     this->scope_man_.insert({"geti64",type_man->getFuncTy(type_man->getI64(), {})});
     this->scope_man_.insert({"geti32",type_man->getFuncTy(type_man->getI32(), {})});
     this->scope_man_.insert({"geti16",type_man->getFuncTy(type_man->getI16(), {})});
@@ -726,20 +739,26 @@ antlrcpp::Any CangjieChecker::visitExpression(CangjieParser::ExpressionContext *
 
 antlrcpp::Any CangjieChecker::visitAssignmentExpression(CangjieParser::AssignmentExpressionContext *context) {
     // context->
+    chir::Bin::Binop op;
+    if(auto _op=context->assignmentOperator()){
+        op=context->assignmentOperator()->accept(this).as<chir::Bin::Binop>();
+    }else{
+        op=chir::Bin::ASSIGN;
+    }
     if(auto lval=context->leftValueExpression()){
         lval->accept(this);
         auto expr=consumeExpr();
         if(auto flow=context->flowExpression()){
             flow->accept(this);
         }
-        produceExpr(make_unique<chir::Assign>(std::move(expr),std::move(consumeExpr())));
+        produceExpr(make_unique<chir::Assign>(op,std::move(expr),std::move(consumeExpr())));
     }else if(auto lval_w=context->leftValueExpressionWithoutWildCard()){
         lval_w->accept(this);
         auto expr=consumeExpr();
         if(auto flow=context->flowExpression()){
             flow->accept(this);
         }
-        produceExpr(make_unique<chir::Assign>(std::move(expr),std::move(consumeExpr())));
+        produceExpr(make_unique<chir::Assign>(op,std::move(expr),std::move(consumeExpr())));
     }else if(auto flow=context->flowExpression()){
         flow->accept(this);
     }
@@ -776,7 +795,7 @@ antlrcpp::Any CangjieChecker::visitLeftAuxExpression(CangjieParser::LeftAuxExpre
 
         if(auto __id=context->identifier()){
             auto id=__id->accept(this).as<string>();
-            produceExpr(make_unique<chir::Selector>(consumeExpr(),id,true));
+            produceExpr(makeSelector(consumeExpr(),id, true));
         }else if(auto _index=context->indexAccess()){
         auto lhs=consumeExpr();
             _index->expression()->accept(this);
@@ -805,7 +824,7 @@ antlrcpp::Any CangjieChecker::visitLeftAuxExpression(CangjieParser::LeftAuxExpre
 antlrcpp::Any CangjieChecker::visitAssignableSuffix(CangjieParser::AssignableSuffixContext *context) {
     if(auto field=context->fieldAccess()){
         auto id=context->fieldAccess()->identifier()->accept(this).as<string>();
-        produceExpr(make_unique<chir::Selector>(consumeExpr(),id,true));
+        produceExpr(makeSelector(consumeExpr(),id, true));
     }else if(auto _index=context->indexAccess()){
         auto lhs=consumeExpr();
         _index->expression()->accept(this);
@@ -825,9 +844,23 @@ antlrcpp::Any CangjieChecker::visitAssignableSuffix(CangjieParser::AssignableSuf
 antlrcpp::Any CangjieChecker::visitFieldAccess(CangjieParser::FieldAccessContext *context) {assert(0);}
 
 antlrcpp::Any CangjieChecker::visitFlowExpression(CangjieParser::FlowExpressionContext *context) {
-    auto coalescings=context->coalescingExpression();
-    assert(coalescings.size()==1);
-    coalescings.front()->accept(this);
+    auto exprs=context->coalescingExpression();
+    exprs.front()->accept(this);
+    auto add_ops=context->flowOperator();
+    ssize_t op_size=add_ops.size();
+    auto last=consumeExpr();
+    for(ssize_t i=0;i<op_size;++i){
+        // auto op=add_ops[i]->accept(this).as<chir::Bin::Binop>();
+        exprs[i+1]->accept(this);
+        auto new_expr=consumeExpr();
+        assert(new_expr->ty_->isFunc());
+        auto ty=((type::FuncType const *)new_expr->ty_)->ret_ty_;
+        auto temp=make_unique<chir::Call>(ty,std::move(new_expr)) ;
+        temp->args_.push_back(std::move(last));
+        // CheckBin(temp.get());
+        last=std::move(temp);
+    }
+    produceExpr(std::move(last));
     return nullptr;
 }
 
@@ -852,7 +885,6 @@ antlrcpp::Any CangjieChecker::visitLogicDisjunctionExpression(CangjieParser::Log
     ssize_t op_size=ops.size();
     auto last=consumeExpr();
     for(ssize_t i=0;i<op_size;++i){
-        auto op=ops[i]->accept(this).as<chir::Bin::Binop>();
         exprs[i+1]->accept(this);
         auto new_expr=consumeExpr();
         last=make_unique<chir::Or>(type_man->getBool(),std::move(last),std::move(new_expr)) ;
@@ -1180,7 +1212,7 @@ antlrcpp::Any CangjieChecker::visitPostfixExpression(CangjieParser::PostfixExpre
             }
         }else if(auto _id=context->identifier()){
             auto lhs=consumeExpr();
-            produceExpr(make_unique<chir::Selector>(std::move(lhs),_id->accept(this).as<string>(),false));
+            produceExpr(makeSelector(std::move(lhs),_id->accept(this).as<string>(),false));
         }else if(q.empty()==false){
             assert(0);
         }else{
@@ -1576,7 +1608,38 @@ antlrcpp::Any CangjieChecker::visitMacroInputExprWithParens(CangjieParser::Macro
 
 antlrcpp::Any CangjieChecker::visitMacroTokens(CangjieParser::MacroTokensContext *context) {assert(0);}
 
-antlrcpp::Any CangjieChecker::visitAssignmentOperator(CangjieParser::AssignmentOperatorContext *context) {assert(0);}
+antlrcpp::Any CangjieChecker::visitAssignmentOperator(CangjieParser::AssignmentOperatorContext *context) {
+    if(context->ASSIGN()){
+        return chir::Bin::ASSIGN;
+    }else if(context->ADD_ASSIGN()){
+        return chir::Bin::ADD;
+    }else if(context->SUB_ASSIGN()){
+        return chir::Bin::SUB;
+    
+    }else if(context->MUL_ASSIGN()){
+        return chir::Bin::MULTI;
+    
+    }else if(context->DIV_ASSIGN()){
+        return chir::Bin::SLASH;
+    
+    }else if(context->MOD_ASSIGN()){
+        return chir::Bin::MOD;
+    }else if(context->BITAND_ASSIGN()){
+        return chir::Bin::BIT_AND;
+    }else if(context->BITOR_ASSIGN()){
+        return chir::Bin::BIT_OR;
+    }else if(context->BITXOR_ASSIGN()){
+        return chir::Bin::BIT_XOR;
+    }else if(context->LSHIFT_ASSIGN()){
+        // return chir::Bin::BIT_OR;
+        assert(0);
+    }else if(context->RSHIFT_ASSIGN()){
+        // return chir::Bin::BIT_XOR;
+        assert(0);
+    }else{
+        assert(0);
+    }
+}
 
 antlrcpp::Any CangjieChecker::visitEqualityOperator(CangjieParser::EqualityOperatorContext *context) {
     if(context->EQUAL()){

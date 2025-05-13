@@ -2,7 +2,6 @@
 #include "midend/hir.hpp"
 #include "midend/scope.hpp"
 #include "midend/type.hpp"
-#include <algorithm>
 #include <alloca.h>
 #include <cassert>
 #include <climits>
@@ -38,19 +37,171 @@
 #include <utility>
 #include <vector>
 #include "llvm/Linker/Linker.h"
-llvm::Function *Builder::getfunc(string s){
-    static bool b=false;
-    std::set<string> lib{"geti64","geti32","geti16","geti8","getf64","getf32","puti64","puti32","puti16","puti8","putf64","putf32"};
-    if(b==false&&lib.find(s)!=lib.end()){
-        llvm::SMDiagnostic err;
-        std::unique_ptr<Module> runtimeModule = llvm::parseIRFile("/home/qran/code/sysy-llvm/lib/lib.ll", err, *context_);
-        if (llvm::Linker::linkModules(*module_, std::move(runtimeModule),llvm::Linker::Flags::OverrideFromSrc)) {
-            llvm::errs() << "Link failed\n";
-            return nullptr;
+#include <unordered_set>
+
+
+static std::map<string,std::vector<std::pair<chir::FuncDecl*,llvm::Function*>>> funcs;
+static std::map<chir::FuncDecl*,llvm::Function*> funcsmap;
+
+
+std::pair<chir::FuncDecl*, llvm::Function*> Builder::findBestMatch(
+    const chir::Call& call,
+    const std::vector<std::pair<chir::FuncDecl*, llvm::Function*>>& candidates
+    ) 
+{
+    struct Candidate {
+        chir::FuncDecl* decl;
+        llvm::Function* func;
+        int total_cost = 0;
+        int defaults_used = 0;
+    };
+
+    std::vector<Candidate> valid;
+
+    for (const auto& [func_decl, llvm_func] : candidates) {
+        Candidate current{func_decl, llvm_func};
+        bool match = true;
+
+        // 参数索引映射
+        std::unordered_map<std::string, size_t> param_index;
+        for (size_t i = 0; i < func_decl->params_.size(); ++i) {
+            param_index[func_decl->params_[i].first] = i;
         }
-        b=true;
+
+        // 已填充参数索引
+        std::unordered_set<size_t> filled;
+
+        // 检查位置参数数量
+        if (call.args_.size() > func_decl->params_.size()) {
+            continue;
+        }
+
+        // 处理位置参数
+        for (size_t i = 0; i < call.args_.size(); ++i) {
+            auto* actual_type = call.args_[i]->ty_;
+            auto* decl_type = func_decl->params_[i].second;
+
+            // 使用findDist获取类型距离
+            const int dist = type_man->findDist(actual_type, decl_type);
+            if (dist == INT_MIN) {
+                match = false;
+                break;
+            }
+            current.total_cost += dist;
+            filled.insert(i);
+        }
+        if (!match) continue;
+
+        // 处理命名参数
+        for (const auto& [name, expr] : call.named_params) {
+            if (!param_index.count(name)) {
+                match = false;
+                break;
+            }
+            const size_t idx = param_index[name];
+
+            // 检查参数冲突
+            if (filled.count(idx) || idx < call.args_.size()) {
+                match = false;
+                break;
+            }
+
+            // 类型兼容检查
+            auto* actual_type = expr->ty_;
+            auto* decl_type = func_decl->params_[idx].second;
+            const int dist = type_man->findDist(actual_type, decl_type);
+            if (dist == INT_MIN) {
+                match = false;
+                break;
+            }
+            current.total_cost += dist;
+            filled.insert(idx);
+        }
+        if (!match) continue;
+
+        // 检查未填充参数
+        for (size_t i = 0; i < func_decl->params_.size(); ++i) {
+            if (!filled.count(i)) {
+                if (!func_decl->some_default_params.count(func_decl->params_[i].first)) {
+                    match = false;
+                    break;
+                }
+                current.defaults_used++;
+            }
+        }
+        if (!match) continue;
+
+        valid.push_back(current);
     }
-    return module_->getFunction(s);
+
+    // 排序逻辑保持不变... 
+
+    return valid.empty() ? std::pair{nullptr,nullptr} : std::pair{valid.front().decl,valid.front().func};
+}
+
+llvm::Function* Builder::findNearestFunc(string name,std::vector<unique_ptr<chir::Expr>> const&args){
+    if(funcs.empty())
+        return nullptr;
+    auto _funcs=funcs.at(name);
+    std::vector<std::pair<chir::FuncDecl*,int>> dist_func;
+    for(auto& f:_funcs){
+        auto decl=f.first;
+        auto size=args.size();
+        if(decl->params_.size()>size)
+            continue;
+        int dis=0;
+        for(ssize_t i=0;i<size;++i){
+            if(decl->params_[i].second!=args[i]->ty_){
+                auto d=this->type_man->findDist(decl->params_[i].second,args[i]->ty_);
+                if(d<0){break;}
+                else{dis+=d;}
+            }
+        }
+        if(dis>=0){
+            dist_func.push_back({decl,dis});
+        }
+    }
+    if(dist_func.empty()){
+        return nullptr;
+    }
+    auto ret=dist_func.front();
+    for(auto f:dist_func){
+        if(f.second<ret.second)
+            ret=f;
+    }
+
+    auto size=args.size();
+    for(ssize_t i=0;i<size;++i){
+        args[i]->ty_=ret.first->params_[i].second;
+    }
+
+    auto decl=ret.first;
+    for(auto f:_funcs){
+        if(decl==f.first){
+            return f.second;
+        }
+    }
+    return nullptr;
+}
+
+std::pair<chir::FuncDecl*, llvm::Function*> Builder::getfunc(chir::Call *call){
+    static bool b=false;
+    auto s=static_cast<chir::Lval*>(call->lhs_.get())->id_;
+    std::set<string> lib{"putchar","geti64","geti32","geti16","geti8","getf64","getf32","puti64","puti32","puti16","puti8","putf64","putf32"};
+    if(lib.find(s)!=lib.end()){
+        if(b==false){
+            llvm::SMDiagnostic err;
+            std::unique_ptr<Module> runtimeModule = llvm::parseIRFile("/home/qran/code/sysy-llvm/lib/lib.ll", err, *context_);
+            if (llvm::Linker::linkModules(*module_, std::move(runtimeModule),llvm::Linker::Flags::OverrideFromSrc)) {
+                llvm::errs() << "Link failed\n";
+                return {};
+            }
+            b=true;
+        }
+        return {nullptr,module_->getFunction(s)};
+    }
+    return findBestMatch(*call,funcs.at(s));
+    
 }
 static ::llvm::Value* tmp_value=nullptr;
 
@@ -74,11 +225,10 @@ static ::llvm::BasicBlock *entry_bb_of_cur_func=nullptr;
 static ::llvm::BasicBlock *cur_bb_of_cur_func=nullptr;
 static ::llvm::Value *ret_of_cur_func=nullptr;
 static ::llvm::BasicBlock *ret_bb_of_cur_func=nullptr;
-static std::vector<std::pair<llvm::BasicBlock*,llvm::BasicBlock*>>tf_bb;
 static bool left=false;
 static bool isselect=false; 
 static std::vector<ScopeType> Scopes;
-static std::map<chir::FuncDecl*,llvm::Function*> funcsmap;
+// static std::map<chir::FuncDecl*,llvm::Function*> funcsmap;
 static std::map<chir::FuncDecl*,llvm::Function*> structsmap;
 // static chir::StructDecl*cur_hir_struct=nullptr;
 void clearfunc(){
@@ -90,7 +240,6 @@ void clearfunc(){
     cur_bb_of_cur_func=nullptr;
     ret_bb_of_cur_func=nullptr;
     ret_of_cur_func=nullptr;
-    tf_bb.clear();
     left=false;
 }
 static ::llvm::Instruction::BinaryOps hir_binop2llvm_binop(chir::Bin& bin){
@@ -485,7 +634,17 @@ void Builder::visit(chir::Module &node){
         "free",
         *this->module_
     );
-
+    FunctionType *putcharty= FunctionType::get(
+        Type::getInt32Ty(*context_),
+        { Type::getInt32Ty(*context_)},
+        false
+    );
+    Function *putchar = Function::Create(
+        putcharty,
+        Function::ExternalLinkage,
+        "putchar",
+        *this->module_
+    );
 
     auto arrays=type_man->getAllArrayType();
     // auto i64=irbuilder_->getInt64Ty();
@@ -560,23 +719,31 @@ void Builder::visit(chir::FuncDecl &node){
     chir::MemFunc *memf=nullptr;
     if(memf=dynamic_cast<chir::MemFunc*>(&node);memf){
         args.push_back(irbuilder_->getPtrTy());
-        name=memf->id_;
+        name=node.ret_ty_->name_+memf->id_;
     }else {
-        name=node.name_;
+        name=node.ret_ty_->name_+node.name_;
     }
     for(auto iter:node.params_){
         args.push_back(getType(iter.second));
+        name+=iter.second->name_;
     }
-
+    if(node.name_=="main")
+        name="main";
     auto func_ty=llvm::FunctionType::get(retty, args,false);
     
     cur_func=::llvm::Function::Create(func_ty, llvm::Function::GlobalValue::ExternalLinkage, name, *this->module_);
+    // funcsmap.insert({&node,cur_func});
+    if(auto itr=funcs.find(node.name_);itr!=funcs.end()){
+        itr->second.push_back({&node,cur_func});
+    }else{
+        funcs.insert({node.name_,{{&node,cur_func}}});
+    }
     funcsmap.insert({&node,cur_func});
     // for(size_t i=0;i<node.params_.size();++i){
     //     val_table.insert({node.params_[i].first,IRInfo{DefTy::FUNC_PARAM,cur_func->getArg(i),node.params_[i].second,cur_func->getArg(i)->getType()}});
     // }
 
-    entry_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"",cur_func);
+    entry_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"entry",cur_func);
 
     cur_bb_of_cur_func=entry_bb_of_cur_func;
     irbuilder_->SetInsertPoint(entry_bb_of_cur_func);
@@ -597,7 +764,7 @@ void Builder::visit(chir::FuncDecl &node){
     if(retty->isVoidTy()==false)
         ret_of_cur_func=irbuilder_->CreateAlloca(getType(node.ret_ty_));
 
-    ret_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"",cur_func);
+    ret_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"end",cur_func);
 
     node.block_->accept(*this);
     // if(ret_bb_of_cur_func->hasNUses(0)){
@@ -614,13 +781,19 @@ void Builder::visit(chir::FuncDecl &node){
     //   if(auto b=hasNoReturn(*cur_func)){
 
     //   }
-    auto b=irbuilder_->GetInsertBlock();
-    if(b->empty()){
-        b->removeFromParent();
+    while(true){
+        auto b=irbuilder_->GetInsertBlock();
+        if(b->empty()){
+            b->removeFromParent();
+        }else if(b->back().isTerminator()==false){
+            irbuilder_->CreateBr(ret_bb_of_cur_func);
+            break;
+        }else{
+            break;
+        }
+        
     }
-    else if(b->back().isTerminator()==false){
-        irbuilder_->CreateBr(ret_bb_of_cur_func);
-    }
+
     if(ret_of_cur_func){
         irbuilder_->SetInsertPoint(ret_bb_of_cur_func);
         irbuilder_->CreateRet(irbuilder_->CreateLoad(retty,ret_of_cur_func));
@@ -708,6 +881,7 @@ void Builder::visit(chir::VarDecl &node){
                 init,
                 node.name_
             );
+            this->val_table.insert({node.name_,IRInfo{node.mod_,gTLS,node.ty_,gTLS->getType()}});
         }else{
             llvm::GlobalVariable* gTLS = new llvm::GlobalVariable(
                 *module_,
@@ -717,7 +891,9 @@ void Builder::visit(chir::VarDecl &node){
                 nullptr,
                 node.name_
             );
+            this->val_table.insert({node.name_,IRInfo{node.mod_,gTLS,node.ty_,gTLS->getType()}});
         }
+
         // llvm::GlobalVariable *g=new llvm::GlobalVariable()
 
     }else{
@@ -767,19 +943,43 @@ void Builder::visit(chir::ExprStmt &node){
     node.expr_->accept(*this);
 }
 void Builder::visit(chir::Assign &node){
+    // // std::cerr<<"assign                    assign"<<endl;
+    // // assert(0);
+    // if(node.rhs_->ty_==type_man->int_liter||node.rhs_->ty_==type_man->float_liter){
+	// node.rhs_->ty_=node.lhs_->ty_;
+    // }
+
+    // node.rhs_->accept(*this);
+    // auto v=consumeVal();
+    // left=true;
+    // node.lhs_->accept(*this);
+    
+    // irbuilder_->CreateStore(v, consumeVal());
+    // left=false;    
     // std::cerr<<"assign                    assign"<<endl;
     // assert(0);
+    
     if(node.rhs_->ty_==type_man->int_liter||node.rhs_->ty_==type_man->float_liter){
 	node.rhs_->ty_=node.lhs_->ty_;
     }
 
     node.rhs_->accept(*this);
-    auto v=consumeVal();
+    auto r=consumeVal();
     left=true;
     node.lhs_->accept(*this);
-    irbuilder_->CreateStore(v, consumeVal());
-    left=false;    
+    if(node.op==chir::Bin::ASSIGN){
+        irbuilder_->CreateStore(r, consumeVal());
+        left=false;
+    }else{
+        llvm::Instruction::BinaryOps op=hir_binop2llvm_binop(node);
+        left=false;
+        auto ptr=consumeVal();
+        node.lhs_->accept(*this);
+        auto l=consumeVal();
+        irbuilder_->CreateStore(this->irbuilder_->CreateBinOp(op,l,r),ptr );
+    }
 }
+
 void Builder::visit(chir::Unary &node){assert(0);}
 void Builder::visit(chir::Bin &node){
     node.lhs_->accept(*this);
@@ -799,67 +999,172 @@ void Builder::visit(chir::Rel &node){
     produceVal(this->irbuilder_->CreateCmp(hir_cmpop2llvm_cmpop(node.op,node.lhs_->ty_->type), l, r));
 }
 
-void Builder::visit(chir::Or &node){
-    // tmp_val=nullptr;
-    assert(tmp_value==nullptr);
+void Builder::visit(chir::Or &node) {
+    assert(tmp_value == nullptr);
+
+    // 分支块和合并块
+    llvm::BasicBlock* rhs_bb = llvm::BasicBlock::Create(*context_, "or.rhs", cur_func);
+    llvm::BasicBlock* merge_bb = llvm::BasicBlock::Create(*context_, "or.merge", cur_func);
+
+    // 为结果分配 bool 存储
+    llvm::AllocaInst* result = irbuilder_->CreateAlloca(llvm::Type::getInt1Ty(*context_), nullptr, "or.tmp");
+
+    // 计算 lhs
     node.lhs_->accept(*this);
-    auto l=consumeVal();
-    // tmp_val=nullptr;
-    llvm::BasicBlock* or_false=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-    tf_bb.push_back({tf_bb.back().first,or_false});
-    
-    irbuilder_->CreateCondBr(l, tf_bb.back().first,tf_bb.back().second);
-    tf_bb.pop_back();
-    irbuilder_->SetInsertPoint(or_false);
-    // tmp_val=nullptr;
-    assert(tmp_value==nullptr);
+    auto lhs_val = consumeVal();
+
+    // lhs 为 true -> 直接 store true，跳转 merge；否则进入 rhs
+    irbuilder_->CreateCondBr(lhs_val, merge_bb, rhs_bb);
+
+    // === RHS 块 ===
+    irbuilder_->SetInsertPoint(rhs_bb);
     node.rhs_->accept(*this);
-    // auto r=std::move(tmp_val);
-    // irbuilder_->CreateCondBr(r, tf_bb.back().first,tf_bb.back().second);
-    // tf_bb.pop_back();
+    auto rhs_val = consumeVal();
+    irbuilder_->CreateStore(rhs_val, result);
+    irbuilder_->CreateBr(merge_bb);
+
+    // === Merge 块 ===
+    irbuilder_->SetInsertPoint(merge_bb);
+
+    // 如果是从 lhs == true 跳来的，还没写值，store true
+    if (!rhs_bb->getPrevNode()->getTerminator()) {
+        llvm::BasicBlock* lhs_bb = rhs_bb->getPrevNode();
+        irbuilder_->SetInsertPoint(lhs_bb);
+        irbuilder_->CreateStore(llvm::ConstantInt::getTrue(*context_), result);
+        irbuilder_->CreateBr(merge_bb);
+        irbuilder_->SetInsertPoint(merge_bb);
+    }
+
+    // 返回最终值
+    produceVal(irbuilder_->CreateLoad(result->getAllocatedType(), result, "or"));
 }
 
-void Builder::visit(chir::And &node){
-    assert(tmp_value==nullptr);
+void Builder::visit(chir::And &node) {
+    assert(tmp_value == nullptr);
+
+    // merge block and result
+    llvm::BasicBlock* rhs_bb = llvm::BasicBlock::Create(*context_, "and.rhs", cur_func);
+    llvm::BasicBlock* merge_bb = llvm::BasicBlock::Create(*context_, "and.merge", cur_func);
+    auto result = irbuilder_->CreateAlloca(llvm::Type::getInt1Ty(*context_), nullptr, "and.tmp");
+
+    // compute lhs
     node.lhs_->accept(*this);
-    auto l=consumeVal();
-    assert(tmp_value==nullptr);
-    llvm::BasicBlock* and_true=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-    tf_bb.push_back({and_true,tf_bb.back().second});
-    irbuilder_->CreateCondBr(l, tf_bb.back().first,tf_bb.back().second);
-    tf_bb.pop_back();
-    irbuilder_->SetInsertPoint(and_true);
-    assert(tmp_value==nullptr);
+    auto lhs_val = consumeVal();
+
+    // lhs 为 false，直接 store false -> merge
+    // 为 true，进入 rhs_bb
+    irbuilder_->CreateCondBr(lhs_val, rhs_bb, merge_bb);
+
+    // false 路径
+    {
+        auto lhs_end = irbuilder_->GetInsertBlock();
+        if (!lhs_end->getTerminator()) {
+            irbuilder_->CreateStore(llvm::ConstantInt::getFalse(*context_), result);
+            irbuilder_->CreateBr(merge_bb);
+        }
+    }
+
+    // === rhs block ===
+    irbuilder_->SetInsertPoint(rhs_bb);
     node.rhs_->accept(*this);
-    // auto r=std::move(tmp_val);
-    // irbuilder_->CreateCondBr(r, tf_bb.back().first,tf_bb.back().second);
-    // tf_bb.pop_back();
+    auto rhs_val = consumeVal();
+    irbuilder_->CreateStore(rhs_val, result);
+    irbuilder_->CreateBr(merge_bb);
+
+    // === merge block ===
+    irbuilder_->SetInsertPoint(merge_bb);
+    produceVal(irbuilder_->CreateLoad(result->getAllocatedType(), result, "and"));
 }
 
 void Builder::visit(chir::Call &node){
 
-    ::llvm::Function* func;
+    std::pair<chir::FuncDecl*, llvm::Function*> decl_func;
     std::vector<llvm::Value*>args;
     if(auto lva=dynamic_cast<chir::Lval*>(node.lhs_.get())){
         // if(cur_hir_func->name_==lva->id_){
         //     func=cur_func;
         // }
-        func=this->getfunc(lva->id_);
+        decl_func=this->getfunc(&node);
     }else if(auto selector=dynamic_cast<chir::Selector*>(node.lhs_.get())){
+        // auto tmp=isselect;
+        // isselect=true;
+        // selector->lhs_->accept(*this);
+        // isselect=tmp;
+        // args.push_back(consumeVal());
+        auto fun=((type::StructType const *)selector->lty_)->struct_->findFunc(selector->rhs_);
+        decl_func={fun,funcsmap.at(fun)};
+    }
+  
+    
+    if(decl_func.first==nullptr){    
+        for(auto& arg:node.args_){
+            arg->accept(*this);
+            args.push_back(consumeVal());
+        }
+        
+        produceVal(irbuilder_->CreateCall(decl_func.second,args));
+        return ;
+    }
+
+    args.resize(decl_func.first->params_.size());
+    std::unordered_set<size_t> filled_positions;
+
+    // 处理位置参数
+    for (size_t i = 0; i < node.args_.size(); ++i) {
+        if (i >= decl_func.first->params_.size()) {
+            throw std::logic_error("Too many positional arguments");
+        }
+        
+        node.args_[i]->accept(*this);
+        args[i] = consumeVal();
+        filled_positions.insert(i);
+    }
+
+    // 处理命名参数
+    for (const auto& [param_name, expr] : node.named_params) {
+        // 查找参数索引
+        auto it = std::find_if(decl_func.first->params_.begin(), decl_func.first->params_.end(),
+            [&](const auto& p) { return p.first == param_name; });
+        
+        if (it == decl_func.first->params_.end()) {
+            throw std::logic_error("Unknown parameter name: " + param_name);
+        }
+        
+        const size_t idx = std::distance(decl_func.first->params_.begin(), it);
+        
+        // 检查是否已填充
+        if (filled_positions.count(idx)) {
+            throw std::logic_error("Duplicate argument for parameter: " + param_name);
+        }
+        
+        // 生成参数值
+        expr->accept(*this);
+        args[idx] = consumeVal();
+        filled_positions.insert(idx);
+    }
+
+    // 填充默认参数
+    for (size_t i = 0; i < decl_func.first->params_.size(); ++i) {
+        if (!args[i]) {
+            if (auto def_it = decl_func.first->some_default_params.find(decl_func.first->params_[i].first);
+                def_it != decl_func.first->some_default_params.end()) 
+            {
+                def_it->second->accept(*this);
+                args[i] = consumeVal();
+            } else {
+                throw std::logic_error("Missing argument for parameter: " 
+                    + decl_func.first->params_[i].first);
+            }
+        }
+    }
+    if(auto selector=dynamic_cast<chir::Selector*>(node.lhs_.get())){
         auto tmp=isselect;
         isselect=true;
         selector->lhs_->accept(*this);
         isselect=tmp;
-        args.push_back(consumeVal());
-        auto fun=selector->struct_->findFunc(selector->rhs_);
-        func=funcsmap.at(fun);
+        args.insert(args.begin(),consumeVal());
     }
-    
-    for(auto& arg:node.args_){
-        arg->accept(*this);
-        args.push_back(consumeVal());
-    }
-    produceVal(irbuilder_->CreateCall(func,args));
+    produceVal(irbuilder_->CreateCall(decl_func.second,args));
 }
 
 void Builder::visit(chir::ThisSuper &node){
@@ -935,26 +1240,37 @@ void Builder::visit(chir::Selector &node){
         isselect=tmp;
     }
     auto val=consumeVal();
+    if(node.lty_->isArray()){
+        llvm::Value* ptr = irbuilder_->CreateStructGEP(this->arraytype,val, 1);
+        
+        if(left==false){
+            produceVal(irbuilder_->CreateLoad(getType(type_man->getI64()),ptr));
+        }else
+            produceVal(ptr);
+        return ;
+    }
+    auto _struct=((type::StructType const*)(node.lty_))->struct_;
     if(val->getType()->isPointerTy()){
         // auto s=getStructTy(llvm::cast<llvm::StructType>());
         // auto decl=s->struct_;
-        ssize_t i=node.struct_->findVarOffset(node.rhs_);
+        
+        ssize_t i=_struct->findVarOffset(node.rhs_);
         if(i!=-1){
             // tmp_val.
-            llvm::Value* ptr = irbuilder_->CreateStructGEP(getType(node.struct_->ty_),val, i);
+            llvm::Value* ptr = irbuilder_->CreateStructGEP(getType(_struct->ty_),val, i);
             
             if(left==false){
-                produceVal(irbuilder_->CreateLoad(getType(node.struct_->vars_[i]->ty_),ptr));
+                produceVal(irbuilder_->CreateLoad(getType(_struct->vars_[i]->ty_),ptr));
             }else
             produceVal(ptr);
 
         }else{
-            produceVal(funcsmap.at(node.struct_->findFunc(node.rhs_)));
+            produceVal(funcsmap.at(_struct->findFunc(node.rhs_)));
         }
     }else{
         // auto s=getStructTy(llvm::cast<llvm::StructType>());
         // auto decl=s->struct_;
-        ssize_t i=node.struct_->findVarOffset(node.rhs_);
+        ssize_t i=_struct->findVarOffset(node.rhs_);
         if(i!=-1){
             // tmp_val.
             produceVal(irbuilder_->CreateExtractValue(val, i));
@@ -1029,7 +1345,7 @@ void Builder::visit(chir::Struct &node){
             param->accept(*this);
             args.push_back(consumeVal());
         }
-        irbuilder_->CreateCall(this->getfunc(init->name_),args);
+        irbuilder_->CreateCall(funcsmap.at(init),args);
         produceVal(irbuilder_->CreateLoad(ty,temp_alloca));
     }else{
         auto s=this->getLLVMStructTy(node.ty_);
@@ -1142,81 +1458,86 @@ void Builder::visit(chir::Lit &node){
     }
 }
 //   void Builder::visit(chir::IntConst &node){assert(0);}
-void Builder::visit(chir::If &node){
-    llvm::BasicBlock* t=nullptr,*f=nullptr,*next=nullptr;
-        t=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-    if(node.else_){
-	    f=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-	    next=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-    }else{
-	    f=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-	    next=f;
-    }
-    tf_bb.push_back({t,f});
-    llvm::AllocaInst* allo=nullptr;
-    if(node.ty_!=nullptr){
-        allo=this->irbuilder_->CreateAlloca(getType(node.ty_));
-    }
-    // tmp_val=nullptr;
-    assert(tmp_value==nullptr);
-    node.cond_->accept(*this);
-    auto tmp=consumeVal();
-    if(tmp)
-	    irbuilder_->CreateCondBr(tmp,t,f);
-    irbuilder_->SetInsertPoint(t);
-    node.then_->accept(*this);
-    if(allo!=nullptr)
-        irbuilder_->CreateStore(consumeVal(),allo);
-    {
-        auto then_end=irbuilder_->GetInsertBlock();
-        if(then_end->back().isTerminator()==false){
-            irbuilder_->CreateBr(next);
-        }
+void Builder::visit(chir::If &node) {
+    llvm::BasicBlock* then_bb = llvm::BasicBlock::Create(*context_, "then", cur_func);
+    llvm::BasicBlock* else_bb = node.else_ ?
+        llvm::BasicBlock::Create(*context_, "else", cur_func) :
+        llvm::BasicBlock::Create(*context_, "elsepass", cur_func);
+    llvm::BasicBlock* merge_bb = llvm::BasicBlock::Create(*context_, "ifend", cur_func);
+
+    llvm::AllocaInst* result = nullptr;
+    if (node.ty_) {
+        result = irbuilder_->CreateAlloca(getType(node.ty_));
     }
 
-    if(node.else_){
-        irbuilder_->SetInsertPoint(f);
+    // compute condition
+    assert(tmp_value == nullptr);
+    node.cond_->accept(*this);
+    auto cond_val = consumeVal();
+    irbuilder_->CreateCondBr(cond_val, then_bb, else_bb);
+
+    // === then ===
+    irbuilder_->SetInsertPoint(then_bb);
+    node.then_->accept(*this);
+    if (result && tmp_value)
+        irbuilder_->CreateStore(consumeVal(), result);
+    if (!irbuilder_->GetInsertBlock()->getTerminator())
+        irbuilder_->CreateBr(merge_bb);
+
+    // === else ===
+    irbuilder_->SetInsertPoint(else_bb);
+    if (node.else_) {
         node.else_->accept(*this);
-        if(allo!=nullptr)
-            irbuilder_->CreateStore(consumeVal(),allo);
-        {
-            auto else_end=irbuilder_->GetInsertBlock();
-            if(else_end->back().isTerminator()==false){
-                irbuilder_->CreateBr(next);
-            }
-        }
+        if (result && tmp_value)
+            irbuilder_->CreateStore(consumeVal(), result);
     }
-    irbuilder_->SetInsertPoint(next);
-    if(allo)
-        produceVal(irbuilder_->CreateLoad(allo->getAllocatedType(),allo,"if"));
+    if (!irbuilder_->GetInsertBlock()->getTerminator())
+        irbuilder_->CreateBr(merge_bb);
+
+    // === merge ===
+    irbuilder_->SetInsertPoint(merge_bb);
+    if (result)
+        produceVal(irbuilder_->CreateLoad(result->getAllocatedType(), result, "if"));
 }
+
 static vector<std::pair<BasicBlock*, BasicBlock*>> while_cond_next_stack;
-void Builder::visit(chir::While &node){
-    llvm::BasicBlock* t=nullptr,*f=nullptr;
-    auto cond_block=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-    t=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-    f=llvm::BasicBlock::Create(*this->context_,"",cur_func);
-    tf_bb.push_back({t,f});
-    while_cond_next_stack.push_back({cond_block,f});
-    // auto size=tf_bb.size();
+void Builder::visit(chir::While &node) {
+    // 创建控制流基本块
+    llvm::BasicBlock* cond_block = llvm::BasicBlock::Create(*this->context_, "while.cond", cur_func);
+    llvm::BasicBlock* loop_block = llvm::BasicBlock::Create(*this->context_, "while.loop", cur_func);
+    llvm::BasicBlock* merge_block = llvm::BasicBlock::Create(*this->context_, "while.merge", cur_func);
+
+    // 将当前的 break/continue 栈推入 stack 中
+    while_cond_next_stack.push_back({cond_block, merge_block});
+
+    // 跳转到条件块
     irbuilder_->CreateBr(cond_block);
     irbuilder_->SetInsertPoint(cond_block);
+
+    // 计算条件表达式
     node.cond_->accept(*this);
-    auto tmp=consumeVal();
-    if(tmp)
-	    irbuilder_->CreateCondBr(tmp,t,f);
-    irbuilder_->SetInsertPoint(t);
+    auto cond_val = consumeVal();
+
+    // 条件判断，若条件为真，跳转至循环体，否则跳出循环
+    irbuilder_->CreateCondBr(cond_val, loop_block, merge_block);
+
+    // 进入循环体块
+    irbuilder_->SetInsertPoint(loop_block);
     node.loop_->accept(*this);
-    {
-        auto loop_end=irbuilder_->GetInsertBlock();
-        if(loop_end->back().isTerminator()==false){
-            irbuilder_->CreateBr(cond_block);
-        }
+
+    // 循环结束后，若未终止，则继续判断条件
+    auto loop_end = irbuilder_->GetInsertBlock();
+    if (!loop_end->getTerminator()) {
+        irbuilder_->CreateBr(cond_block);
     }
 
-    // irbuilder_->CreateBr(f);
-    irbuilder_->SetInsertPoint(f);
+    // 进入合并块
+    irbuilder_->SetInsertPoint(merge_block);
+
+    // 恢复栈，处理继续与跳出
+    while_cond_next_stack.pop_back();
 }
+
 void Builder::visit(chir::Block &node){
     size_t size=node.stmts_.size();
     for(auto i=0;i<size;++i){
@@ -1295,61 +1616,78 @@ void Builder::visit(chir::WCDecl &node) {
 }
 void Builder::visit(chir::NumConv &node) {
     node.expr_->accept(*this);
-    if(node.ty_==node.expr_->ty_){
+    if (node.ty_ == node.expr_->ty_) {
+        produceVal(consumeVal());
         return;
     }
-    auto tmp_val=consumeVal();
-    auto dest_ty=getType(node.ty_);
-    // if(auto ity=llvm::dyn_cast<llvm::IntegerType>(val->getType())){
-    //     if(ity->getBitWidth()<node.ty_->getSize()){
-    //     }
-    // }
-    size_t size=0;
-    if(node.expr_->ty_->getSize()<node.ty_->getSize()){
-        if(node.expr_->ty_->isUInt()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::ZExt,tmp_val, dest_ty);
-        }else if(node.expr_->ty_->isSInt()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::SExt,tmp_val, dest_ty);            
-        }else if(node.expr_->ty_->isFloat()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::FPExt,tmp_val, dest_ty);            
+
+    auto tmp_val = consumeVal();
+    auto dest_ty = getType(node.ty_);
+    auto* src_ty = tmp_val->getType();
+
+    // 处理同类型不同宽度的扩展/截断
+    size_t src_size = node.expr_->ty_->getSize();
+    size_t dest_size = node.ty_->getSize();
+
+    // 处理整数/浮点类型相同的情况
+    if (node.expr_->ty_->isInt() && node.ty_->isInt()) {
+        if (dest_size > src_size) {
+            if (node.expr_->ty_->isUInt()) {
+                tmp_val = irbuilder_->CreateZExt(tmp_val, dest_ty);
+            } else {
+                tmp_val = irbuilder_->CreateSExt(tmp_val, dest_ty);
+            }
+        } else if (dest_size < src_size) {
+            tmp_val = irbuilder_->CreateTrunc(tmp_val, dest_ty);
         }
-        size=node.ty_->getSize();
-    }else if(node.expr_->ty_->getSize()>node.ty_->getSize()){
-        if(node.expr_->ty_->isUInt()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::Trunc,tmp_val, dest_ty);
-        }else if(node.expr_->ty_->isSInt()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::Trunc,tmp_val, dest_ty);            
-        }else if(node.expr_->ty_->isFloat()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::FPTrunc,tmp_val, dest_ty);            
+        // 宽度相同无需转换
+    }
+    else if (node.expr_->ty_->isFloat() && node.ty_->isFloat()) {
+        if (dest_size > src_size) {
+            tmp_val = irbuilder_->CreateFPExt(tmp_val, dest_ty);
+        } else if (dest_size < src_size) {
+            tmp_val = irbuilder_->CreateFPTrunc(tmp_val, dest_ty);
         }
-        size=node.expr_->ty_->getSize();
-    }else{
-        size=node.ty_->getSize();
+    }
+    // 处理类型不同的转换
+    else {
+        if (node.expr_->ty_->isUInt()) {
+            if (node.ty_->isSInt()) {
+                // 同宽度无符号转有符号无需操作
+                if (src_size != dest_size) {
+                    if (dest_size > src_size) {
+                        tmp_val = irbuilder_->CreateZExt(tmp_val, dest_ty);
+                    } else {
+                        tmp_val = irbuilder_->CreateTrunc(tmp_val, dest_ty);
+                    }
+                }
+            } else if (node.ty_->isFloat()) {
+                tmp_val = irbuilder_->CreateUIToFP(tmp_val, dest_ty);
+            }
+        }
+        else if (node.expr_->ty_->isSInt()) {
+            if (node.ty_->isUInt()) {
+                // 同宽度有符号转无符号无需操作
+                if (src_size != dest_size) {
+                    if (dest_size > src_size) {
+                        tmp_val = irbuilder_->CreateSExt(tmp_val, dest_ty);
+                    } else {
+                        tmp_val = irbuilder_->CreateTrunc(tmp_val, dest_ty);
+                    }
+                }
+            } else if (node.ty_->isFloat()) {
+                tmp_val = irbuilder_->CreateSIToFP(tmp_val, dest_ty);
+            }
+        }
+        else if (node.expr_->ty_->isFloat()) {
+            if (node.ty_->isUInt()) {
+                tmp_val = irbuilder_->CreateFPToUI(tmp_val, dest_ty);
+            } else if (node.ty_->isSInt()) {
+                tmp_val = irbuilder_->CreateFPToSI(tmp_val, dest_ty);
+            }
+        }
     }
 
-    if(node.expr_->ty_->isUInt()){
-        if(node.ty_->isUInt()){
-        }else if(node.ty_->isSInt()){
-            // llvm::Instruction::CastOps op=llvm::Instruction::CastOps::sitoe;
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::SExt,tmp_val, getType(node.ty_));
-        }else if(node.ty_->isFloat()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::UIToFP,tmp_val, getType(node.ty_));
-        }
-    }else if(node.expr_->ty_->isSInt()){
-        if(node.ty_->isUInt()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::ZExt,tmp_val, getType(node.ty_));
-        }else if(node.ty_->isSInt()){
-        }else if(node.ty_->isFloat()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::CastOps::SIToFP,tmp_val, getType(node.ty_));
-        }
-    }else  if(node.expr_->ty_->isFloat()){
-        if(node.ty_->isUInt()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::FPToUI,tmp_val, getType(node.ty_));
-        }else if(node.ty_->isSInt()){
-            tmp_val=irbuilder_->CreateCast(llvm::Instruction::FPToSI,tmp_val, getType(node.ty_));
-        }else if(node.ty_->isFloat()){
-        }
-    }
     produceVal(tmp_val);
 }
 
@@ -1371,7 +1709,7 @@ void Builder::visit(chir::Init &node){
     cur_func=::llvm::Function::Create(func_ty, llvm::Function::GlobalValue::ExternalLinkage, node.name_, *this->module_);
 
 
-    entry_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"",cur_func);
+    entry_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"entry",cur_func);
     cur_bb_of_cur_func=entry_bb_of_cur_func;
     irbuilder_->SetInsertPoint(entry_bb_of_cur_func);
     // ret_of_cur_func=irbuilder_->CreateAlloca(getType(node.parent_->ty_));
@@ -1400,7 +1738,7 @@ void Builder::visit(chir::Init &node){
     }
 
 
-    ret_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"",cur_func);
+    ret_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"ret",cur_func);
 
     node.block_->accept(*this);
     auto b=irbuilder_->GetInsertBlock();
@@ -1414,6 +1752,7 @@ void Builder::visit(chir::Init &node){
         // }
     val_table.exit();
     Scopes.pop_back();
+    funcsmap.insert({&node,cur_func});
 }
 // void Builder::genIR(ast::CompunitNode*node){
 //     this->visit(*node);

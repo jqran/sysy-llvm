@@ -86,7 +86,7 @@ Or::Or(type::Type const*ty,unique_ptr<Expr> lhs,unique_ptr<Expr> rhs):Bin(ty,Bin
 And::And(type::Type const* ty,unique_ptr<Expr> lhs,unique_ptr<Expr> rhs):Bin(ty,Binop::LAND,std::move(lhs),std::move(rhs)){
     assert(this->ty_->isBool());
 }
-Assign::Assign(unique_ptr<Expr> lhs,unique_ptr<Expr> rhs):Bin(nullptr,Bin::Binop::ASSIGN,std::move(lhs),std::move(rhs)){
+Assign::Assign(Binop op, unique_ptr<Expr> lhs,unique_ptr<Expr> rhs):Bin(nullptr,op,std::move(lhs),std::move(rhs)){
     if(rhs_->ty_->isLit()){
         assert(lhs_->ty_->type==rhs_->ty_->type);
         rhs_->ty_=lhs_->ty_;
@@ -592,9 +592,9 @@ void chir::Jump::check(type::TypeManager& tyman,type::Type const *ty){
 void chir::Ret::check(type::TypeManager& tyman,type::Type const *ty){
     // assert(ty==this->ty_);
     if(this->expr_)
-        if(ty!=nullptr)
-            this->expr_->check(tyman, ty);
-        else{
+        if(ty!=nullptr){
+            // this->expr_->check(tyman, ty);
+        }else{
         }
     else{
         assert(this->ty_==nullptr||this->ty_->isUnit());
@@ -761,6 +761,9 @@ void chir::WCDecl::check(type::TypeManager& tyman){
 }
 
 void chir::FuncDecl::check(type::TypeManager& tyman){
+    if(this->ty_->isUInt()){
+        return;
+    }
     if(this->ret_ty_!=nullptr){
         //不为数字类型直接判断
         if(!ret_ty_->isNum())

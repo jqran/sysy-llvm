@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
     CangjieParser parser(&tokens);    
     parser.setBuildParseTree(true);
     auto* tree = parser.translationUnit();
-
+    // std::cout<<tree->toStringTree(1)<<std::endl;
     auto* visitor = new CangjieChecker;
     visitor->visitTranslationUnit(tree);
 

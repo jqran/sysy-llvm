@@ -4,6 +4,7 @@
 #include "midend/type.hpp"
 #include <cassert>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <sys/types.h>
@@ -223,7 +224,7 @@ struct ArrayLit:public Expr{
 //   BinExpr(binop op,unique_ptr<Expr> lhs,unique_ptr<Expr> rhs):op(op),lhs(std::move(lhs)),rhs(std::move(rhs)),Expr(){}
 // };
 struct Assign:public Bin{
-    Assign(unique_ptr<Expr> lhs,unique_ptr<Expr> rhs);
+    Assign(Binop op,unique_ptr<Expr> lhs,unique_ptr<Expr> rhs);
     using Bin::print;
     virtual void accept(HirVisitor&visitor);
     virtual void check(type::TypeManager& tyman,type::Type const *ty);
@@ -276,6 +277,7 @@ struct RetStmt:public Stmt{
 struct FuncDecl:public Decl{
     // type::Type const* func_ty;
     std::vector<std::pair<string,type::Type const*>>params_;
+    std::map<string,unique_ptr<Expr>> some_default_params;
     type::Type const* ret_ty_;
     unique_ptr<Block> block_;
     std::vector<Ret*> rets_;
@@ -438,38 +440,41 @@ struct ArrIndex:public Expr{
 };
 struct Selector:public Expr{
     unique_ptr<Expr>lhs_;
-    StructDecl*struct_;
+    // StructDecl*struct_;
+    type::Type const* lty_;
     bool isleft_;
     string rhs_;
-    Selector(unique_ptr<Expr>lhs,string rhs,bool isleft_):lhs_(std::move(lhs)),rhs_(rhs),isleft_(isleft_){
-        type::Type const* ty=nullptr;
-        if(auto lval=dynamic_cast<Lval*>(lhs_.get())){
-            auto ty=lval->ty_;
-            assert(ty->type==type::TypeId::STRUCT);
-            struct_=((type::StructType*)(ty))->struct_;
-        }else if(auto _this=dynamic_cast<ThisSuper*>(lhs_.get())){
-            auto ty=_this->ty_;
-            assert(ty->type==type::TypeId::STRUCT);
-            struct_=_this->struct_decl_;
-        }else if(auto selector=dynamic_cast<Selector*>(lhs_.get())){
-            auto ty=selector->ty_;
-            assert(ty->type==type::TypeId::STRUCT);
-            auto decl=selector->struct_->find(selector->rhs_);
-            assert(decl->ty_->isStruct()==true);
-            this->struct_=((type::StructType const*)(decl->ty_))->struct_;
-        }else{
+    Selector(type::Type const *ty,unique_ptr<Expr>lhs,string rhs,bool isleft_):Expr(ty),lhs_(std::move(lhs)),rhs_(rhs),isleft_(isleft_){}
+    Selector(type::Type const *ty,type::Type const *lty,unique_ptr<Expr>lhs,string rhs,bool isleft_):Expr(ty),lty_(lty),lhs_(std::move(lhs)),rhs_(rhs),isleft_(isleft_){}
+    // Selector(unique_ptr<Expr>lhs,string rhs,bool isleft_):lhs_(std::move(lhs)),rhs_(rhs),isleft_(isleft_){
+    //     type::Type const* ty=nullptr;
+    //     if(auto lval=dynamic_cast<Lval*>(lhs_.get())){
+    //         auto ty=lval->ty_;
+    //         assert(ty->type==type::TypeId::STRUCT);
+    //         struct_=((type::StructType*)(ty))->struct_;
+    //     }else if(auto _this=dynamic_cast<ThisSuper*>(lhs_.get())){
+    //         auto ty=_this->ty_;
+    //         assert(ty->type==type::TypeId::STRUCT);
+    //         struct_=_this->struct_decl_;
+    //     }else if(auto selector=dynamic_cast<Selector*>(lhs_.get())){
+    //         auto ty=selector->ty_;
+    //         assert(ty->type==type::TypeId::STRUCT);
+    //         auto decl=selector->struct_->find(selector->rhs_);
+    //         assert(decl->ty_->isStruct()==true);
+    //         this->struct_=((type::StructType const*)(decl->ty_))->struct_;
+    //     }else{
 
-            //this_super
-            assert(0);
-        }
-        if(struct_->findVar(rhs_)==nullptr){
-            auto f=struct_->findFunc(rhs_);
-            this->ty_=f->ty_;
-        }else{
-            auto v=struct_->vars_[struct_->findVarOffset(rhs_)].get();
-            this->ty_=v->ty_;
-        }// assert(v!=nullptr||f!=nullptr);
-    }
+    //         //this_super
+    //         assert(0);
+    //     }
+    //     if(struct_->findVar(rhs_)==nullptr){
+    //         auto f=struct_->findFunc(rhs_);
+    //         this->ty_=f->ty_;
+    //     }else{
+    //         auto v=struct_->vars_[struct_->findVarOffset(rhs_)].get();
+    //         this->ty_=v->ty_;
+    //     }// assert(v!=nullptr||f!=nullptr);
+    // }
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
     virtual void check(type::TypeManager& tyman,type::Type const *ty);
@@ -477,6 +482,7 @@ struct Selector:public Expr{
 struct Call:public Expr{
     unique_ptr<Expr> lhs_;
     vector<unique_ptr<Expr>> args_;
+    std::map<string, unique_ptr<Expr>> named_params;
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
     virtual void check(type::TypeManager& tyman,type::Type const *ty);

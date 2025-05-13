@@ -51,7 +51,12 @@ class Builder:public chir::HirVisitor{
         }
         return nullptr;
     }
-    llvm::Function *getfunc(string s);
+    llvm::Function* findNearestFunc(string name,std::vector<unique_ptr<chir::Expr>> const&args);
+    std::pair<chir::FuncDecl*, llvm::Function*> findBestMatch(
+    const chir::Call& call,
+    const std::vector<std::pair<chir::FuncDecl*, llvm::Function*>>& candidates
+    );
+    std::pair<chir::FuncDecl*, llvm::Function*>getfunc(chir::Call *call);
     virtual void visit(chir::Module &node) ;
     virtual void visit(chir::FuncDecl &node) ;
     virtual void visit(chir::StructDecl&node) ;

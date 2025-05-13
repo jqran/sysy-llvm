@@ -20,7 +20,7 @@ EnumType const *const TypeManager::addEnumType(chir::EnumDecl * s){
     this->decl_type.insert({id,decl_ty});
     return decl_ty;
 }
-ArrayType::ArrayType(Type const* element,bool isdynamic,ssize_t size):Type(TypeId::ARRAY,0,"Array"),element_(element),isdynamic_(isdynamic),size_(size){
+ArrayType::ArrayType(Type const* element,bool isdynamic,ssize_t size):Type(TypeId::ARRAY,0,"Array"+element->name_),element_(element),isdynamic_(isdynamic),size_(size){
 }
 bool  Type::operator==(Type const& other)const{
     assert(0);
