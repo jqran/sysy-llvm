@@ -3,6 +3,7 @@
 #include "midend/scope.hpp"
 #include "midend/type.hpp"
 #include <cassert>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <sys/types.h>
@@ -148,6 +149,13 @@ struct If:public Expr{
     virtual void accept(HirVisitor&visitor);
     virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
+struct Jump:public Expr{
+    bool is_continue_;
+    Jump(type::Type const*ty,bool is_continue):Expr(ty),is_continue_(is_continue){}
+    virtual void print(int lv);
+    virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
+};
 struct Ret:public Expr{
     unique_ptr<Expr> expr_;
     virtual void print(int lv);
@@ -164,6 +172,7 @@ struct NumConv:public Expr{
     virtual void accept(HirVisitor&visitor);
     virtual void check(type::TypeManager& tyman,type::Type const *ty);
 };
+
 struct While:public Expr{
     unique_ptr<Expr> cond_;
     unique_ptr<Block> loop_;
@@ -355,6 +364,31 @@ struct StructDecl:public Decl{
     virtual void accept(HirVisitor&visitor);
     virtual void check(type::TypeManager& tyman);
 };
+
+struct EnumDecl:public Decl{
+    std::vector<std::pair<string, vector<type::Type const*>>> contexts_;
+    std::vector<unique_ptr<FuncDecl>> funcs_;
+    // std::vector<unique_ptr<FuncDecl>> inits_;
+    using Decl::Decl;
+    uint getTagSize()const{
+        if(contexts_.size()<=2){
+            return 1;
+        }else if(contexts_.size()-1<=UINT8_MAX){
+            return 8;
+        }else if(contexts_.size()-1<=UINT16_MAX){
+            return 16;
+        }else if(contexts_.size()-1<=UINT32_MAX){
+            return 32;
+        }else{
+            return 64;
+        }
+    }
+    // VarDecl(type::Type const * const ty,string name,unique_ptr<Expr> init):Decl(ty,name),init_(std::move(init)){}
+    virtual void print(int lv);
+    virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman);
+};
+
 struct Lval:public Expr{
     string id_;
     // Decl *const  decl_;
@@ -374,7 +408,34 @@ struct ThisSuper:public Expr{
     virtual void check(type::TypeManager& tyman,type::Type const *ty);
     ThisSuper(StructDecl*struc,bool isthis):Expr(struc->ty_),struct_decl_(struc),is_this_(isthis){}
 };
-
+struct ArrIndex:public Expr{
+    type::Type const * arr_ty_;
+    unique_ptr<Expr> lhs_;
+    vector<unique_ptr<Expr>>indexs_;
+    // Decl *const  decl_;
+    // Lval(string id,Decl*decl):Expr(decl->ty_),id_(id),decl_(decl){assert(this->ty_!=nullptr);}
+    // Lval(Decl*decl):Expr(decl->ty_),id_(decl->name_),decl_(decl){assert(this->ty_!=nullptr);}
+    bool isleft_;
+    ArrIndex(type::Type const* ty,unique_ptr<Expr> lhs,unique_ptr<Expr> index,bool isleft_):arr_ty_(ty),lhs_(std::move(lhs)),indexs_(),isleft_(isleft_){
+        indexs_.push_back(std::move(index));
+        if(ty->isArray()){
+            auto arrty=(type::ArrayType const*  )ty;
+            this->ty_=arrty->element_;
+        }else{
+            assert(0);
+        }
+    }
+    void addIndex(unique_ptr<Expr> index){
+        if(ty_->isArray()){
+            auto arr=(type::ArrayType const *)ty_;
+            ty_=arr->element_;
+        }else{assert(0);}
+        indexs_.push_back(std::move(index));
+    }
+    virtual void print(int lv);
+    virtual void accept(HirVisitor&visitor);
+    virtual void check(type::TypeManager& tyman,type::Type const *ty);
+};
 struct Selector:public Expr{
     unique_ptr<Expr>lhs_;
     StructDecl*struct_;
@@ -415,7 +476,6 @@ struct Selector:public Expr{
 };
 struct Call:public Expr{
     unique_ptr<Expr> lhs_;
-    FuncDecl*func_;
     vector<unique_ptr<Expr>> args_;
     virtual void print(int lv);
     virtual void accept(HirVisitor&visitor);
@@ -445,6 +505,7 @@ struct HirVisitor{
     virtual void visit(chir::Module &node) =0 ;
     virtual void visit(chir::FuncDecl &node) =0 ;
     virtual void visit(chir::StructDecl&node) =0 ;
+    virtual void visit(chir::EnumDecl&node) =0 ;
     virtual void visit(chir::Init&node) =0 ;
     // virtual void visit(chir::ValDeclStmt &node) =0 ;
     virtual void visit(chir::WCDecl &node) =0 ;
@@ -459,6 +520,7 @@ struct HirVisitor{
     virtual void visit(chir::And &node) =0 ;
     virtual void visit(chir::Lval &node) =0 ;
     virtual void visit(chir::ThisSuper &node) =0 ;
+    virtual void visit(chir::ArrIndex &node) =0 ;
     virtual void visit(chir::Selector &node) =0 ;
     virtual void visit(chir::Call &node) =0 ;
     virtual void visit(chir::Struct&node) =0 ;
@@ -466,6 +528,7 @@ struct HirVisitor{
     virtual void visit(chir::Lit &node) =0 ;
     // virtual void visit(chir::IntConst &node) =0 ;
     virtual void visit(chir::If &node) =0 ; 
+    virtual void visit(chir::Jump &node) =0 ; 
     virtual void visit(chir::Ret &node) =0 ; 
     virtual void visit(chir::NumConv &node) =0 ; 
     virtual void visit(chir::While &node) =0 ;

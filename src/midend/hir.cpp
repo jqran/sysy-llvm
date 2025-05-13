@@ -122,6 +122,10 @@ void chir::ThisSuper::print(int lv){
     // LevelPrint(lv,"variable "+this->id_);
     assert(0);
 }
+void chir::ArrIndex::print(int lv){
+    // LevelPrint(lv,"variable "+this->id_);
+    assert(0);
+}
 void chir::Selector::print(int lv){
     // LevelPrint(lv,"variable "+this->id_);
     assert(0);
@@ -157,6 +161,8 @@ void chir::If::print(int lv){
 	    LevelPrint(lv, "else end");
     }
 
+}
+void chir::Jump::print(int lv){
 }
 void chir::Ret::print(int lv){
     LevelPrint(lv, "ret");
@@ -256,6 +262,16 @@ void chir::StructDecl::print(int lv){
     }
     --lv;
 }
+void chir::EnumDecl::print(int lv){
+    ++lv;
+    // for(auto &m:this->vars_){
+	// m->print(lv);
+    // }
+    for(auto &m:this->funcs_){
+	m->print(lv);
+    }
+    --lv;
+}
 void chir::Module::print(int lv){
     for(auto &i:this->defs_){
 	    i->print(lv);
@@ -271,6 +287,10 @@ void chir::Lval::accept(chir::HirVisitor& visitor){
 }
 
 void chir::ThisSuper::accept(chir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+
+void chir::ArrIndex::accept(chir::HirVisitor& visitor){
     visitor.visit(*this);
 }
 
@@ -319,6 +339,9 @@ void chir::If::accept(chir::HirVisitor& visitor){
 }
 
 void chir::Ret::accept(chir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
+void chir::Jump::accept(chir::HirVisitor& visitor){
     visitor.visit(*this);
 }
 
@@ -372,7 +395,9 @@ void chir::Init::accept(chir::HirVisitor& visitor){
 void chir::StructDecl::accept(chir::HirVisitor& visitor){
     visitor.visit(*this);
 }
-
+void chir::EnumDecl::accept(chir::HirVisitor& visitor){
+    visitor.visit(*this);
+}
 void chir::Module::accept(chir::HirVisitor& visitor){
     visitor.visit(*this);
 }
@@ -390,6 +415,12 @@ void chir::Lval::check(type::TypeManager& tyman,type::Type const *ty){
 }
 
 void chir::ThisSuper::check(type::TypeManager& tyman,type::Type const *ty){
+    if(ty!=nullptr){
+        assert(ty==this->ty_);
+    }
+}
+
+void chir::ArrIndex::check(type::TypeManager& tyman,type::Type const *ty){
     if(ty!=nullptr){
         assert(ty==this->ty_);
     }
@@ -555,6 +586,9 @@ void chir::If::check(type::TypeManager& tyman,type::Type const *ty){
             this->else_->check(tyman, ty);
     }
 }
+void chir::Jump::check(type::TypeManager& tyman,type::Type const *ty){
+    this->ty_=tyman.getUnit();
+}
 void chir::Ret::check(type::TypeManager& tyman,type::Type const *ty){
     // assert(ty==this->ty_);
     if(this->expr_)
@@ -563,7 +597,9 @@ void chir::Ret::check(type::TypeManager& tyman,type::Type const *ty){
         else{
         }
     else{
-        assert(ty==nullptr&&this->ty_==nullptr);
+        assert(this->ty_==nullptr||this->ty_->isUnit());
+        assert(ty==nullptr||ty->isUnit());
+        // assert(ty==nullptr&&this->ty_==nullptr);
     }
 }
 void chir::NumConv::check(type::TypeManager& tyman,type::Type const *ty){
@@ -578,12 +614,35 @@ void chir::NumConv::check(type::TypeManager& tyman,type::Type const *ty){
     }
 }
 void chir::While::check(type::TypeManager& tyman,type::Type const *ty){
+    this->ty_=tyman.getUnit();
     if(ty)
         assert(ty==this->ty_);
     this->cond_->check(tyman,tyman.getBool());
     // assert(ty==tyman.getUnit());
 }
 void chir::ArrayLit::check(type::TypeManager& tyman,type::Type const *ty){
+    if(ty!=0){
+        this->ty_=ty;
+        if(ty->isArray()){
+            auto ele=((type::ArrayType const *)ty)->element_;
+            for(auto &e:elements_){
+            e->check(tyman,ele);
+        }
+    }
+        return ;
+    }
+
+    if(this->ty_==nullptr&&ty==nullptr){
+        if(this->elements_.empty()){
+            assert(0);
+        }else{
+            // this->elements_.front()->check(tyman,nullptr);
+            for(auto& e:elements_){
+                e->check(tyman,nullptr);
+            }
+            this->ty_=tyman.getArrayTy(this->elements_.front()->ty_);
+        }
+    }
     if(ty!=nullptr){
         if(this->ty_==nullptr){
             this->ty_=ty;
@@ -673,6 +732,7 @@ void chir::VarDecl::check(type::TypeManager& tyman){
                 assert(tyman.findDist(this->ty_,init_->ty_)>=0);
                 this->init_->ty_=this->ty_;
             }else{
+                init_->check(tyman,this->ty_);
                 assert(this->ty_==init_->ty_);
             }
             init_->check(tyman,this->ty_);
@@ -751,5 +811,7 @@ void chir::Init::check(type::TypeManager& tyman){
     
 }
 void chir::StructDecl::check(type::TypeManager& tyman){
+}
+void chir::EnumDecl::check(type::TypeManager& tyman){
 }
 }

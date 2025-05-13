@@ -2,6 +2,7 @@
 #include "midend/hir.hpp"
 #include "midend/scope.hpp"
 #include "midend/type.hpp"
+#include <algorithm>
 #include <alloca.h>
 #include <cassert>
 #include <climits>
@@ -14,6 +15,9 @@
 #include <llvm-19/llvm/IR/GlobalValue.h>
 #include <llvm-19/llvm/IR/GlobalVariable.h>
 #include <llvm-19/llvm/IR/IRBuilder.h>
+#include <llvm-19/llvm/IRReader/IRReader.h>
+#include <llvm-19/llvm/Support/SourceMgr.h>
+#include <llvm-19/llvm/Support/TypeSize.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -31,8 +35,23 @@
 #include <string>
 #include <sys/types.h>
 #include <tuple>
+#include <utility>
 #include <vector>
-
+#include "llvm/Linker/Linker.h"
+llvm::Function *Builder::getfunc(string s){
+    static bool b=false;
+    std::set<string> lib{"geti64","geti32","geti16","geti8","getf64","getf32","puti64","puti32","puti16","puti8","putf64","putf32"};
+    if(b==false&&lib.find(s)!=lib.end()){
+        llvm::SMDiagnostic err;
+        std::unique_ptr<Module> runtimeModule = llvm::parseIRFile("/home/qran/code/sysy-llvm/lib/lib.ll", err, *context_);
+        if (llvm::Linker::linkModules(*module_, std::move(runtimeModule),llvm::Linker::Flags::OverrideFromSrc)) {
+            llvm::errs() << "Link failed\n";
+            return nullptr;
+        }
+        b=true;
+    }
+    return module_->getFunction(s);
+}
 static ::llvm::Value* tmp_value=nullptr;
 
 static  llvm::Value*  consumeVal(){
@@ -61,7 +80,7 @@ static bool isselect=false;
 static std::vector<ScopeType> Scopes;
 static std::map<chir::FuncDecl*,llvm::Function*> funcsmap;
 static std::map<chir::FuncDecl*,llvm::Function*> structsmap;
-static chir::StructDecl*cur_hir_struct=nullptr;
+// static chir::StructDecl*cur_hir_struct=nullptr;
 void clearfunc(){
     tmp_value=nullptr;
     cur_func=nullptr;
@@ -227,6 +246,8 @@ static ::llvm::CmpInst::Predicate hir_cmpop2llvm_cmpop(chir::Bin::Binop op,type:
 	default:
 	    type=this->irbuilder_->getDoubleTy();
 	}
+    }else if(ty->isUInt()){
+        return irbuilder_->getVoidTy();
     }else if(ty->isPoint()){
         return getType(((type::PointType*)ty)->element_)->getPointerTo();
     }else if(ty->isArray()){
@@ -426,6 +447,7 @@ static ::llvm::CmpInst::Predicate hir_cmpop2llvm_cmpop(chir::Bin::Binop op,type:
 // using llvm::Function,llvm::FunctionType;
 using namespace llvm;
 void Builder::visit(chir::Module &node){
+    module_->setModuleIdentifier("aaa");
 // malloc: i8* malloc(i64)    
     auto i64=irbuilder_->getInt64Ty();
     auto ptr=irbuilder_->getPtrTy();
@@ -473,7 +495,7 @@ void Builder::visit(chir::Module &node){
         // auto arrayStruct=new chir::StructDecl(nullptr,"CangJieArray");
         // __struct->setBody();
         //size element size
-        __struct= ::llvm::StructType::create(*context_,{ptr,i64,i64},"CangJieArray");
+        __struct= ::llvm::StructType::create(*context_,{ptr,i64},"CangJieArray");
         // std::vector<llvm::Type*>vars;
         // __struct->setBody(vars);
         this->arraytype=__struct;
@@ -528,7 +550,7 @@ void Builder::visit(chir::FuncDecl &node){
     Scopes.push_back(ScopeType::FUNC);
     val_table.enter();
     llvm::Type* retty;
-    if(node.ty_==type_man->getUnit()){
+    if(node.ret_ty_==type_man->getUnit()){
 	    retty=llvm::Type::getVoidTy(*context_);
     }else{
 	    retty=getType(node.ret_ty_);
@@ -572,7 +594,7 @@ void Builder::visit(chir::FuncDecl &node){
             val_table.insert({node.params_[i].first,IRInfo{DefTy::LET,arg_addr,node.params_[i].second,cur_func->getArg(i)->getType()}});
         }
     }
-    if(node.ty_!=type_man->getUnit())
+    if(retty->isVoidTy()==false)
         ret_of_cur_func=irbuilder_->CreateAlloca(getType(node.ret_ty_));
 
     ret_bb_of_cur_func= llvm::BasicBlock::Create(*context_,"",cur_func);
@@ -604,7 +626,7 @@ void Builder::visit(chir::FuncDecl &node){
         irbuilder_->CreateRet(irbuilder_->CreateLoad(retty,ret_of_cur_func));
     }else{
         irbuilder_->SetInsertPoint(ret_bb_of_cur_func);
-        irbuilder_->CreateRet(irbuilder_->CreateRetVoid());
+        irbuilder_->CreateRetVoid();
     }
     val_table.exit();
     Scopes.pop_back();
@@ -613,7 +635,7 @@ void Builder::visit(chir::StructDecl &node){
     // Scopes.push_back(ScopeType::STRUCT);
     // Scopes.pop_back();
     // LLVMContext& context = ...;
-    cur_hir_struct=&node;
+    // cur_hir_struct=&node;
     ::llvm::StructType* __struct = ::llvm::StructType::create(*context_,node.name_);
     // __struct->setBody();
     std::vector<llvm::Type*>vars;
@@ -632,7 +654,42 @@ void Builder::visit(chir::StructDecl &node){
     for(auto &fun:node.funcs_){
         fun->accept(*this);
     }
-    cur_hir_struct=nullptr;
+    // cur_hir_struct=nullptr;
+}
+void Builder::visit(chir::EnumDecl &node){
+    auto tagty=irbuilder_->getIntNTy(node.getTagSize());
+    std::vector<std::pair<std::string, llvm::Type*>>contexts;
+    for(auto &i:node.contexts_){
+        ::llvm::StructType* __struct = ::llvm::StructType::create(*context_,i.first);
+        vector<llvm::Type*>tys;
+        for(auto t:i.second){
+            if(t->isNum()==false&&t->isBool()==false&&t->isUnit()==false){
+                tys.push_back(irbuilder_->getPtrTy());
+            }else
+                tys.push_back(getType(t));
+        }
+        __struct->setBody(tys);
+        contexts.push_back({i.first,__struct});
+    }
+    llvm::DataLayout layout(module_);
+    uint  max_size=0;
+    for(auto i:contexts){
+        uint new_size=layout.getTypeAllocSize(i.second);   
+        if(max_size<new_size){
+            max_size=new_size;
+        }
+    }
+    Type *payloadTy = ArrayType::get(irbuilder_->getInt8Ty(),max_size);
+    StructType *enumty = StructType::create(*this->context_, {tagty, payloadTy}, node.name_);
+    this->struct_tys_.push_back({node.ty_,enumty});
+    // llvm::GlobalVariable* gTLS = new llvm::GlobalVariable(
+    //     *module_,
+    //     enumTy,
+    //     false,
+    //     llvm::GlobalValue::ExternalLinkage,
+    //     nullptr,
+    //     node.name_
+    // );
 }
 //   void Builder::visit(chir::ValDeclStmt &node){assert(0);}
 void Builder::visit(chir::VarDecl &node){
@@ -674,6 +731,13 @@ void Builder::visit(chir::VarDecl &node){
             node.init_->accept(*this);
             // if(tmp_val->getType()!=allo->getType())
             if(node.ty_->isArray()){
+                // node.init_->accept(*this);
+                // this->;
+                auto tmp=consumeVal();
+                if(tmp->getType()->isPointerTy()){
+                    this->irbuilder_->CreateStore(irbuilder_->CreateLoad(tmp_type,tmp), allo);    
+                }else
+                    this->irbuilder_->CreateStore(tmp, allo);
                 // 先设置 capacity
                 // auto sizeTy = llvm::Type::getInt64Ty(*this->context_);
                 // auto capValue = llvm::ConstantInt::get(sizeTy, 16);
@@ -777,7 +841,10 @@ void Builder::visit(chir::Call &node){
     ::llvm::Function* func;
     std::vector<llvm::Value*>args;
     if(auto lva=dynamic_cast<chir::Lval*>(node.lhs_.get())){
-        func=module_->getFunction(lva->id_);
+        // if(cur_hir_func->name_==lva->id_){
+        //     func=cur_func;
+        // }
+        func=this->getfunc(lva->id_);
     }else if(auto selector=dynamic_cast<chir::Selector*>(node.lhs_.get())){
         auto tmp=isselect;
         isselect=true;
@@ -799,6 +866,67 @@ void Builder::visit(chir::ThisSuper &node){
     produceVal(cur_func->getArg(0));
 }
 
+void Builder::visit(chir::ArrIndex &node){
+    auto tmp=left;
+    left=true;
+    node.lhs_->accept(*this);
+    left=tmp;
+    auto array_ptr=consumeVal();
+    llvm:Value* ptr=nullptr;
+    ssize_t size=node.indexs_.size();
+    auto ty=node.arr_ty_;
+    for(ssize_t i=0;i<size;++i){
+        left=false;
+        node.indexs_[i]->accept(*this);
+        left=tmp;
+        auto offset=consumeVal();
+
+        assert(ty->isArray());
+        ty=((type::ArrayType const *)ty)->element_;
+
+        auto PtrGEP = irbuilder_->CreateStructGEP(arraytype,array_ptr, 0, "ptr_gep");
+        ptr = irbuilder_->CreateLoad(irbuilder_->getPtrTy(), PtrGEP, "ptr");
+        array_ptr=irbuilder_->CreateGEP(getType(ty),ptr,{offset});
+    }
+    if(node.isleft_){
+        produceVal(array_ptr);
+    }else{
+        produceVal(irbuilder_->CreateLoad(getType(node.ty_),array_ptr));
+    }
+    // auto tmp=left;
+    // left=true;
+    // node.lhs_->accept(*this);
+    // left=tmp;
+    // auto l=consumeVal();
+    // Value *dataFieldPtr = irbuilder_->CreateStructGEP(this->arraytype, l, 0, "array.left");
+    // dataFieldPtr=irbuilder_->CreateLoad(irbuilder_->getPtrTy(),dataFieldPtr);
+    // left=false;
+    // llvm::Value *elemPtr ;
+    // type::Type const * elety=(type::ArrayType const *)node.arr_ty_;
+    // ssize_t size=node.indexs_.size();
+    // for(ssize_t i=0;i<size;++i){
+    //     auto &index=node.indexs_[i];
+    //     auto tmpl=left;
+    //     left=false;
+    //     index->accept(*this);
+    //     left=tmpl;
+        
+    //     auto offset=consumeVal();
+    //     if(elety->isArray()){
+    //         elety=((type::ArrayType const *)elety)->element_;
+    //     }
+    //     elemPtr = irbuilder_->CreateGEP(getType(elety), dataFieldPtr,{offset});    
+    //     if(i<size-1){
+    //         dataFieldPtr = irbuilder_->CreateStructGEP(this->arraytype, elemPtr, 0, "array.left");
+    //         dataFieldPtr=irbuilder_->CreateLoad(irbuilder_->getPtrTy(),dataFieldPtr);
+    //     }
+    // }
+    // left=tmp;
+    // if(node.isleft_)
+    //     produceVal(elemPtr);
+    // else
+    //     produceVal(irbuilder_->CreateLoad(getType(node.ty_),elemPtr));
+}
 void Builder::visit(chir::Selector &node){
     {
         auto tmp=isselect;
@@ -901,7 +1029,7 @@ void Builder::visit(chir::Struct &node){
             param->accept(*this);
             args.push_back(consumeVal());
         }
-        irbuilder_->CreateCall(module_->getFunction(init->name_),args);
+        irbuilder_->CreateCall(this->getfunc(init->name_),args);
         produceVal(irbuilder_->CreateLoad(ty,temp_alloca));
     }else{
         auto s=this->getLLVMStructTy(node.ty_);
@@ -943,22 +1071,40 @@ void Builder::visit(chir::Lval &node){
 }
 void Builder::visit(chir::ArrayLit &node){
     std::vector<llvm::Value*>vec;
+    auto size=node.elements_.size();
+    auto tmp=left;
+    left=false;
     for(auto &e:node.elements_){
         e->accept(*this);
         vec.push_back(consumeVal());
     }
-    auto *llvm_arrayTy = llvm::ArrayType::get(getType(node.elements_.front()->ty_), vec.size());
-    auto arrAlloca = irbuilder_->CreateAlloca(llvm_arrayTy, nullptr, "arr");
-    
+    left=tmp;
+    // auto *llvm_arrayTy = llvm::ArrayType::get(getType(node.elements_.front()->ty_), vec.size());
+    auto __struct=this->arraytype;
+    auto arrAlloca = irbuilder_->CreateAlloca(__struct, nullptr, "arr");
+    uint64_t sizeInBytes = layout.getTypeAllocSize(getType(node.elements_.front()->ty_));
+    // auto malloc=irbuilder_->CreateCall(module_->getFunction("malloc"),llvm::ConstantInt::get(irbuilder_->getInt64Ty(), size*sizeInBytes));
+    auto malloc=this->createMalloc(size*sizeInBytes);
+    // irbuilder_.createm
     for (unsigned i = 0; i < vec.size(); ++i) {
         // 获取元素指针
-        llvm::Value *elemPtr = irbuilder_->CreateInBoundsGEP(llvm_arrayTy, arrAlloca,
-                            {irbuilder_->getInt32(0), irbuilder_->getInt32(i)});
+        llvm::Value *elemPtr = irbuilder_->CreateGEP(vec[i]->getType(), malloc,
+                            {irbuilder_->getInt32(i)});
         // 存储值
         irbuilder_->CreateStore(vec[i], elemPtr);
     }
-    produceVal(arrAlloca);
-    //获取arr的类型
+
+    Value *dataFieldPtr = irbuilder_->CreateStructGEP(this->arraytype, arrAlloca, 0, "array.data");
+    irbuilder_->CreateStore(malloc, dataFieldPtr);
+
+    Value *sizeFieldPtr = irbuilder_->CreateStructGEP(this->arraytype,arrAlloca, 1, "array.size");
+    irbuilder_->CreateStore(ConstantInt::get(irbuilder_->getInt64Ty(),size), sizeFieldPtr);
+    if(left)
+        produceVal(arrAlloca);
+    else{
+        produceVal(irbuilder_->CreateLoad(arraytype,arrAlloca));
+    }
+        //获取arr的类型
     // assert(arrAlloca->getAllocatedType()->isArrayTy());
     // auto arrty=llvm::dyn_cast<llvm::ArrayType>(arrAlloca->getAllocatedType());
     // assert(arrty->getNumElements()==3);
@@ -1044,12 +1190,14 @@ void Builder::visit(chir::If &node){
     if(allo)
         produceVal(irbuilder_->CreateLoad(allo->getAllocatedType(),allo,"if"));
 }
+static vector<std::pair<BasicBlock*, BasicBlock*>> while_cond_next_stack;
 void Builder::visit(chir::While &node){
     llvm::BasicBlock* t=nullptr,*f=nullptr;
     auto cond_block=llvm::BasicBlock::Create(*this->context_,"",cur_func);
     t=llvm::BasicBlock::Create(*this->context_,"",cur_func);
     f=llvm::BasicBlock::Create(*this->context_,"",cur_func);
     tf_bb.push_back({t,f});
+    while_cond_next_stack.push_back({cond_block,f});
     // auto size=tf_bb.size();
     irbuilder_->CreateBr(cond_block);
     irbuilder_->SetInsertPoint(cond_block);
@@ -1101,16 +1249,29 @@ void Builder::visit(chir::Block &node){
     }
 }
 void Builder::visit(chir::RetStmt &node){
-    if(node.expr_){
-        // irbuilder_->SetInsertPoint(::llvm::BasicBlock::Create(*context_,"",cur_func));
-        node.expr_->accept(*this);
-        auto ret=consumeVal();
-        irbuilder_->CreateStore(ret, ret_of_cur_func);
-    }
+    assert(0);
+    // if(node.expr_){
+    //     // irbuilder_->SetInsertPoint(::llvm::BasicBlock::Create(*context_,"",cur_func));
+    //     node.expr_->accept(*this);
+    //     auto ret=consumeVal();
+    //     irbuilder_->CreateStore(ret, ret_of_cur_func);
+    // }
     // irbuilder_->CreateBr(ret_bb_of_cur_func);
     // irbuilder_->SetInsertPoint(ret_bb_of_cur_func);
     
 }
+
+void Builder::visit(chir::Jump &node) {
+    auto tmp=while_cond_next_stack.back();
+    llvm::BasicBlock* next;
+    if(node.is_continue_){
+        next=tmp.first;
+    }else{
+        next=tmp.second;
+    }
+    irbuilder_->CreateBr(next);
+} 
+
 void Builder::visit(chir::Ret &node) {
     if(node.expr_){
         // irbuilder_->SetInsertPoint(::llvm::BasicBlock::Create(*context_,"",cur_func));

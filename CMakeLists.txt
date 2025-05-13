@@ -15,7 +15,7 @@ include_directories(include /usr/include/antlr4-runtime antlr)
 link_directories(/usr/lib)
 
 # Source files
-file(GLOB_RECURSE SOURCES "src/test/testast.cpp" "src/midend/type.cpp" "src/midend/AntlrChecker.cpp" "src/midend/hir.cpp" "src/midend/builder.cpp" "antlr/*.cpp")
+file(GLOB_RECURSE SOURCES "src/main.cpp" "src/midend/type.cpp" "src/midend/AntlrChecker.cpp" "src/midend/hir.cpp" "src/midend/builder.cpp" "antlr/*.cpp")
 
 # Create the executable
 add_executable(testllvm ${SOURCES})

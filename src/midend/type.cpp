@@ -1,8 +1,6 @@
 #include "midend/type.hpp"
 #include "midend/hir.hpp"
 #include <cassert>
-#include <memory>
-#include <vector>
 
 namespace type {
     // Info::Info(long l):size(l){
@@ -11,6 +9,13 @@ namespace type {
 StructType const *const TypeManager::addStructType(chir::StructDecl * s){
     auto id=s->name_;
     StructType const*   decl_ty=new StructType(id,s);
+    s->ty_=decl_ty;
+    this->decl_type.insert({id,decl_ty});
+    return decl_ty;
+}
+EnumType const *const TypeManager::addEnumType(chir::EnumDecl * s){
+    auto id=s->name_;
+    EnumType const*   decl_ty=new EnumType(id,s);
     s->ty_=decl_ty;
     this->decl_type.insert({id,decl_ty});
     return decl_ty;

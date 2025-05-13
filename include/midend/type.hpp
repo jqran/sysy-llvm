@@ -4,7 +4,6 @@
 #include <climits>
 #include <map>
 #include <string>
-#include <string_view>
 #include <sys/types.h>
 #include <utility>
 
@@ -12,6 +11,7 @@
 using std::string,std::vector;
 namespace  chir{
     struct StructDecl;
+    struct EnumDecl;
     struct Module;
 }
 namespace type {
@@ -64,6 +64,7 @@ enum class TypeId:int{
     UINT,
     FLOAT,
     STRUCT,
+    ENUM,
     ARRAY,
     UNIT,
     POINT,
@@ -92,6 +93,9 @@ public:
     bool isNum() const{
         return this->type==TypeId::FLOAT||this->type==TypeId::INT||this->type==TypeId::UINT;
     }
+    bool isUnit() const{
+        return this->type==TypeId::UNIT;
+    }    
     bool isLit() const{
         return this->isNum()&&this->size==0;
     }
@@ -173,6 +177,25 @@ public:
     // }
 };
 
+class EnumType:public Type{
+public:
+    chir::EnumDecl *const enum_;
+    // struct Member{
+    //     string name_;
+    //     Type const *type_;
+    //     perm per_;
+    // };
+    // vector<Member> members;
+    EnumType(string name,chir::EnumDecl* const enum_):Type(TypeId::ENUM,0,name),enum_(enum_){
+    }
+    // bool operator==(Type&other){
+        // if(other.type!=TypeId::STRUCT){
+        //     return false;
+        // }
+    // }
+};
+    
+
 class TypeManager{
     // std::array<BuiltinType,F16+1> builtin_type;
 public:
@@ -250,6 +273,7 @@ public:
         return new FuncType(ret_ty,std::move(params));
     }
     StructType const *const addStructType(chir::StructDecl* const s);
+    EnumType const *const addEnumType(chir::EnumDecl* const s);
     // StructType const *const addStructType(StructType * const t){
     //     auto &name=t->name_;
     //     if(decl_type.count(name))

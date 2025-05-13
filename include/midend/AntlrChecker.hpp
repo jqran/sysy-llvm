@@ -51,7 +51,7 @@ struct ScopeManager{
     void insertDecl(chir::Decl*decl){
         curr_->decls_.push_back({decl->name_,decl->ty_});
     }
-    void insert(std::pair<string&,type::Type const*> pair){
+    void insert(std::pair<string,type::Type const*> pair){
         curr_->decls_.push_back(pair);
     }
 };
@@ -71,7 +71,7 @@ private:
     chir::FuncDecl* findNearestFunc(std::vector<unique_ptr<chir::Expr>> const&args,vector<unique_ptr<chir::FuncDecl>>const&funcs);
 
     ScopeManager scope_man_;
-    auto findDecl(string id){return scope_man_.findDecl(id);}
+    auto findDecl(string id);
     type::Type const* find(chir::Expr* expr);
     void insertDecl(chir::Decl*decl){scope_man_.insertDecl(decl);}
     HirScope* enter(){return scope_man_.enter();}
